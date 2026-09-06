@@ -1,0 +1,297 @@
+import {
+  canTransitionAssistantTurn,
+  isTerminalTurnStatus,
+  nowIso,
+  type AssistantChannel,
+  type AssistantTurnRecord,
+  type AssistantTurnStatus,
+} from './assistant-turn.js';
+import type { AssistantTurnStore } from './assistant-turn-store.js';
+
+export const STALE_IN_FLIGHT_MS = 5 * 60 * 1000;
+
+export function isInFlightTurnStatus(status: AssistantTurnStatus): boolean {
+  return status === 'running' || status === 'committing';
+}
+
+export function isStaleInFlightTurn(turn: AssistantTurnRecord, nowMs = Date.now()): boolean {
+  if (!isInFlightTurnStatus(turn.status)) return false;
+  const updatedAt = Date.parse(turn.updatedAt);
+  if (!Number.isFinite(updatedAt)) return false;
+  return nowMs - updatedAt > STALE_IN_FLIGHT_MS;
+}
+
+export class AssistantTurnConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'AssistantTurnConflictError';
+  }
+}
+
+export class AssistantSessionBusyError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'AssistantSessionBusyError';
+  }
+}
+
+function sessionKey(conversationId: string | null, turnId: string): string {
+  return conversationId ? `conversation:${conversationId}` : `turn:${turnId}`;
+}
+
+export class MutationSessionGate {
+  private readonly active = new Map<string, string>();
+
+  tryAcquire(conversationId: string | null, turnId: string): boolean {
+    const key = sessionKey(conversationId, turnId);
+    const owner = this.active.get(key);
+    if (!owner || owner === turnId) {
+      this.active.set(key, turnId);
+      return true;
+    }
+    return false;
+  }
+
+  release(conversationId: string | null, turnId: string): void {
+    const key = sessionKey(conversationId, turnId);
+    if (this.active.get(key) === turnId) {
+      this.active.delete(key);
+    }
+  }
+}
+
+export type AssistantTurnRunOutcome = 'running' | 'replay' | 'in_flight' | 'canceled';
+
+export class AssistantTurnRun {
+  private currentTurn: AssistantTurnRecord;
+  private readonly onAbort?: () => void;
+
+  constructor(
+    private readonly kernel: AssistantKernel,
+    private readonly store: AssistantTurnStore,
+    turn: AssistantTurnRecord,
+    readonly outcome: AssistantTurnRunOutcome,
+    private readonly epoch: number,
+    private readonly signal?: AbortSignal,
+  ) {
+    this.currentTurn = turn;
+    if (signal && outcome === 'running') {
+      this.onAbort = () => {
+        void this.cancel('client_disconnected');
+      };
+      signal.addEventListener('abort', this.onAbort, { once: true });
+    }
+  }
+
+  get turn(): AssistantTurnRecord {
+    return this.currentTurn;
+  }
+
+  async complete(
+    patch: Partial<Pick<AssistantTurnRecord, 'assistantText' | 'toolPayload' | 'receiptIds' | 'conversationId'>>,
+  ): Promise<AssistantTurnRecord> {
+    this.currentTurn = await this.kernel.commit(
+      this.currentTurn,
+      this.store,
+      this.epoch,
+      patch,
+    );
+    this.dispose();
+    return this.currentTurn;
+  }
+
+  async fail(error: unknown): Promise<AssistantTurnRecord> {
+    this.currentTurn = await this.kernel.fail(this.currentTurn, this.store, error);
+    this.dispose();
+    return this.currentTurn;
+  }
+
+  async cancel(reason: unknown = 'client_disconnected'): Promise<AssistantTurnRecord> {
+    this.currentTurn = await this.kernel.cancel(this.currentTurn, this.store, reason);
+    this.dispose();
+    return this.currentTurn;
+  }
+
+  dispose(): void {
+    if (this.signal && this.onAbort) {
+      this.signal.removeEventListener('abort', this.onAbort);
+    }
+  }
+}
+
+export class AssistantKernel {
+  constructor(private readonly sessions = new MutationSessionGate()) {}
+
+  async runTurn(input: {
+    turnId: string;
+    conversationId?: string | null;
+    channel: AssistantChannel;
+    epoch: number;
+    userMessage: string;
+    userMessageId?: string | null;
+    responseMode?: 'text' | 'voice';
+    recordUserMessageInConversation?: boolean;
+    store: AssistantTurnStore;
+    signal?: AbortSignal;
+  }): Promise<AssistantTurnRun> {
+    let turn = await this.begin(input);
+    if (turn.status === 'completed') {
+      return new AssistantTurnRun(this, input.store, turn, 'replay', input.epoch);
+    }
+    if (turn.status === 'canceled') {
+      return new AssistantTurnRun(this, input.store, turn, 'canceled', input.epoch);
+    }
+    if (isInFlightTurnStatus(turn.status)) {
+      return new AssistantTurnRun(this, input.store, turn, 'in_flight', input.epoch);
+    }
+    if (turn.status === 'queued') {
+      turn = await this.transition(turn, 'running', input.store);
+    }
+    const run = new AssistantTurnRun(
+      this,
+      input.store,
+      turn,
+      'running',
+      input.epoch,
+      input.signal,
+    );
+    if (input.signal?.aborted) {
+      await run.cancel('client_disconnected');
+    }
+    return run;
+  }
+
+  async begin(input: {
+    turnId: string;
+    conversationId?: string | null;
+    channel: AssistantChannel;
+    epoch: number;
+    userMessage: string;
+    userMessageId?: string | null;
+    responseMode?: 'text' | 'voice';
+    recordUserMessageInConversation?: boolean;
+    store: AssistantTurnStore;
+  }): Promise<AssistantTurnRecord> {
+    const accepted = await input.store.accept({
+      turnId: input.turnId,
+      conversationId: input.conversationId ?? null,
+      channel: input.channel,
+      epoch: input.epoch,
+      userMessage: input.userMessage,
+      userMessageId: input.userMessageId,
+      responseMode: input.responseMode ?? 'text',
+      recordUserMessageInConversation: input.recordUserMessageInConversation,
+    });
+    if (!accepted.acceptedAt || !accepted.userMessageId) {
+      throw new AssistantTurnConflictError('assistant_turn_not_durably_accepted');
+    }
+    if (accepted.status === 'completed' || accepted.status === 'canceled') return accepted;
+    if (accepted.status === 'failed' || accepted.status === 'failed_retryable') {
+      return this.transition(accepted, 'queued', input.store, { error: null });
+    }
+    if (isStaleInFlightTurn(accepted)) {
+      const failed = await this.fail(accepted, input.store, 'stale_in_flight');
+      if (failed.status === 'failed_retryable') {
+        return this.transition(failed, 'queued', input.store, { error: null });
+      }
+      return failed;
+    }
+    return accepted;
+  }
+
+  async transition(
+    turn: AssistantTurnRecord,
+    status: AssistantTurnStatus,
+    store: AssistantTurnStore,
+    patch: Partial<Pick<AssistantTurnRecord, 'error' | 'assistantText' | 'toolPayload' | 'receiptIds' | 'conversationId'>> = {},
+  ): Promise<AssistantTurnRecord> {
+    if (!canTransitionAssistantTurn(turn.status, status)) {
+      throw new AssistantTurnConflictError(
+        `Illegal assistant turn transition ${turn.status} -> ${status}`,
+      );
+    }
+    const timestamp = nowIso();
+    const ended = status === 'completed' || status === 'canceled' || status === 'failed' || status === 'failed_retryable';
+    const next: AssistantTurnRecord = {
+      ...turn,
+      ...patch,
+      status,
+      updatedAt: timestamp,
+      completedAt: ended ? timestamp : (status === 'queued' || status === 'running' ? null : turn.completedAt),
+    };
+    return store.put(next);
+  }
+
+  acquireMutation(turn: AssistantTurnRecord): void {
+    if (!this.sessions.tryAcquire(turn.conversationId, turn.id)) {
+      throw new AssistantSessionBusyError(
+        `Conversation ${turn.conversationId || turn.id} already has an active mutation sequence`,
+      );
+    }
+  }
+
+  releaseMutation(turn: AssistantTurnRecord): void {
+    this.sessions.release(turn.conversationId, turn.id);
+  }
+
+  assertLiveEpoch(turn: AssistantTurnRecord, epoch: number): void {
+    if (turn.epoch !== epoch) {
+      throw new AssistantTurnConflictError('stale_epoch');
+    }
+  }
+
+  async fail(
+    turn: AssistantTurnRecord,
+    store: AssistantTurnStore,
+    error: unknown,
+  ): Promise<AssistantTurnRecord> {
+    const latest = await store.get(turn.id);
+    if (!latest) throw new AssistantTurnConflictError('assistant_turn_missing');
+    if (isTerminalTurnStatus(latest.status)) return latest;
+    if (!canTransitionAssistantTurn(latest.status, 'failed_retryable')) return latest;
+    return this.transition(latest, 'failed_retryable', store, {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  async cancel(
+    turn: AssistantTurnRecord,
+    store: AssistantTurnStore,
+    reason: unknown = 'client_disconnected',
+  ): Promise<AssistantTurnRecord> {
+    const latest = await store.get(turn.id);
+    if (!latest) throw new AssistantTurnConflictError('assistant_turn_missing');
+    if (isTerminalTurnStatus(latest.status) || latest.status === 'failed' || latest.status === 'failed_retryable') return latest;
+    if (!canTransitionAssistantTurn(latest.status, 'canceled')) return latest;
+    return this.transition(latest, 'canceled', store, {
+      error: reason instanceof Error ? reason.message : String(reason),
+    });
+  }
+
+  async commit(
+    turn: AssistantTurnRecord,
+    store: AssistantTurnStore,
+    epoch: number,
+    patch: Partial<Pick<AssistantTurnRecord, 'assistantText' | 'toolPayload' | 'receiptIds' | 'conversationId'>>,
+  ): Promise<AssistantTurnRecord> {
+    const latest = await store.get(turn.id);
+    if (!latest) throw new AssistantTurnConflictError('assistant_turn_missing');
+    if (isTerminalTurnStatus(latest.status) || latest.status === 'failed' || latest.status === 'failed_retryable') return latest;
+    this.assertLiveEpoch(latest, epoch);
+    const committing = latest.status === 'committing'
+      ? latest
+      : await this.transition(latest, 'committing', store, patch);
+    const timestamp = nowIso();
+    return store.commit({
+      ...committing,
+      ...patch,
+      status: 'completed',
+      error: null,
+      commitVersion: committing.commitVersion + 1,
+      updatedAt: timestamp,
+      completedAt: timestamp,
+    });
+  }
+}
+
+export const defaultAssistantKernel = new AssistantKernel();

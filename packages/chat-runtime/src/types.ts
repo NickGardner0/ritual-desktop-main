@@ -180,11 +180,16 @@ export interface CalendarEventsResult {
   start_date?: string;
   end_date?: string;
   events?: Array<{
+    id?: string;
+    occurrence_id?: string;
     title: string;
-    day: string;
-    start_time: string;
-    end_time: string;
-    duration_minutes: number;
+    start?: string;
+    end?: string;
+    all_day?: boolean;
+    kind?: string;
+    source?: string;
+    conflict?: boolean;
+    sync_state?: string;
   }>;
   event_count?: number;
   error?: string;
@@ -213,7 +218,29 @@ export type ChatToolResults = {
   calendarEvents?: CalendarEventsResult;
   suggested_followups?: string[];
   reply_chips?: string[];
+  actionReceipts?: ActionReceiptSummary[];
+  entityRefs?: ChatEntityRef[];
 };
+
+/** Thin citation identity. Keep independent of shared-contracts. */
+export type ChatEntityRef = {
+  type: string;
+  id: string;
+  title?: string;
+};
+
+/** Mutation receipt returned by logHabit / createHabit tools */
+export interface ActionReceiptSummary {
+  receipt_id: string;
+  action_kind: 'logHabit' | 'createHabit' | string;
+  habit_id?: string | null;
+  habit_name?: string | null;
+  was_inserted?: boolean;
+  undoable?: boolean;
+  log_id?: string | null;
+  amount?: number | null;
+  date?: string | null;
+}
 
 // ---------------------------------------------------------------------------
 // Local (desktop) activity data passed from the client

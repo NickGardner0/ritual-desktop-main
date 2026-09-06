@@ -40,7 +40,12 @@ yarn-debug.log*
 yarn-error.log*
 
 # Tauri
+apps/desktop/src-tauri/resources/chat-runtime/**
+!apps/desktop/src-tauri/resources/chat-runtime/.gitkeep
+apps/desktop/src-tauri/resources/agent/**
+!apps/desktop/src-tauri/resources/agent/.gitkeep
 apps/desktop/src-tauri/target/
+apps/desktop/.tauri-helper/
 apps/desktop/src-tauri/Cargo.lock
 apps/desktop/src-tauri/tauri.generated.production.conf.json
 apps/desktop/src-tauri/bin/*/target/
@@ -131,3 +136,12 @@ backups/
 
 # Local historical data exports
 tmp/historical-*/
+# Local launch-performance evidence can contain machine paths and runtime logs.
+artifacts/launch-evidence/
+
+# Compiled ritual-agent sidecar (bun --compile). Vendor with:
+# node scripts/pin-desktop-agent-sidecar.mjs
+apps/desktop/src-tauri/binaries/ritual-agent-*
+# Leftover Node runtime from the previous chat sidecar.
+apps/desktop/src-tauri/binaries/ritual-node-*
+apps/desktop/src-tauri/binaries/ritual-bun-*

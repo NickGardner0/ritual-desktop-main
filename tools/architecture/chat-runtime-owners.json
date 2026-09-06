@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "lifecycleOwner": "packages/chat-runtime/src/assistant-kernel.ts#AssistantKernel.runTurn",
+  "modelEngineOwner": "packages/chat-runtime/src/model-engine/openai-adapter.ts#OpenAIModelEngineAdapter.stream",
+  "toolExecutionOwner": "packages/chat-runtime/src/turn-tool-loop.ts",
+  "promptContextOwner": "packages/chat-runtime/src/turn-context.ts",
+  "entrypoints": [
+    {
+      "channel": "dashboard",
+      "path": "packages/chat-runtime/src/handle-chat-stream.ts",
+      "handler": "handleChatStreamRequest",
+      "turnOwner": "AssistantKernel.runTurn"
+    },
+    {
+      "channel": "queued_workflow",
+      "path": "apps/dashboard/lib/workflows/executor.ts",
+      "handler": "executeWorkflow",
+      "turnOwner": "AssistantKernel.runTurn"
+    },
+    {
+      "channel": "desktop_outbox_replay",
+      "path": "apps/dashboard/lib/chat/assistant-turn-outbox.ts",
+      "handler": "drainAssistantTurnOutbox",
+      "delegatesTo": "packages/chat-runtime/src/handle-chat-stream.ts#handleChatStreamRequest"
+    },
+    {
+      "channel": "desktop_sidecar",
+      "path": "packages/agent/src/sidecar.ts",
+      "handler": "startAgentSidecar",
+      "delegatesTo": "packages/chat-runtime/src/handle-chat-stream.ts#handleChatStreamRequest"
+    }
+  ]
+}

@@ -2,8 +2,8 @@
 //!
 //! The scanner is intentionally best-effort: if Biome is unavailable, Full
 //! Disk Access is missing, or parsing fails for a file, the normal Mac watcher
-//! continues unaffected. Parsed intervals are written to a disk JSONL outbox
-//! drained by the main Tauri app.
+//! continues unaffected. Parsed intervals are appended to the shared activity
+//! database outbox and drained by the main Tauri app.
 
 mod outbox;
 mod protobuf;
@@ -586,7 +586,26 @@ struct BiomeBookmarks {
 
 impl BiomeBookmarks {
     fn load() -> Result<Self, String> {
-        Self::load_from(&bookmarks_path())
+        let database_path = crate::paths::data_dir().join("activity.db");
+        let database =
+            ritual_db::blocking::BlockingDatabase::open_activity_db_with_env(database_path)
+                .map_err(|error| error.to_string())?;
+        let mut devices = database
+            .biome_delivery_cursors()
+            .map_err(|error| error.to_string())?;
+        let legacy_path = bookmarks_path();
+        if devices.is_empty() && legacy_path.exists() {
+            let legacy = Self::load_from(&legacy_path)?;
+            for (source_key, committed_ts) in &legacy.devices {
+                database
+                    .advance_biome_delivery_cursor(source_key, *committed_ts)
+                    .map_err(|error| error.to_string())?;
+            }
+            devices = legacy.devices;
+            fs::rename(&legacy_path, legacy_path.with_extension("json.migrated"))
+                .map_err(|error| format!("archive Biome bookmarks: {error}"))?;
+        }
+        Ok(Self { devices })
     }
 
     fn load_from(path: &Path) -> Result<Self, String> {
@@ -630,11 +649,7 @@ fn app_in_focus_remote_dir() -> PathBuf {
 }
 
 fn bookmarks_path() -> PathBuf {
-    home_dir()
-        .join("Library")
-        .join("Application Support")
-        .join("Ritual")
-        .join("biome_committed_cursors.json")
+    crate::paths::auxiliary_data_dir().join("biome_committed_cursors.json")
 }
 
 fn home_dir() -> PathBuf {

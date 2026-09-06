@@ -12,7 +12,6 @@ from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
-from zoneinfo import ZoneInfo
 
 import httpx
 from sqlalchemy import and_, desc, func, select
@@ -38,6 +37,7 @@ from schemas.workflows import (
     InternalWorkflowExecuteResponse,
     PolicyDecision,
     ProposedAction,
+    WorkflowDefinitionCreate,
     WorkflowDefinitionListResponse,
     WorkflowDefinitionRead,
     WorkflowDefinitionUpdate,
@@ -51,6 +51,7 @@ from schemas.workflows import (
 from services.action_policy_service import action_policy_service
 from services.artifact_service import artifact_service
 from services.fact_service import fact_service
+from services.recurrence import localize_reference, next_workflow_run_at, normalize_timezone
 
 logger = logging.getLogger(__name__)
 
@@ -163,51 +164,8 @@ class WorkflowService:
         except Exception:
             return fallback
 
-    def _normalize_timezone(self, timezone_name: Optional[str]) -> str:
-        candidate = (timezone_name or "").strip() or DEFAULT_WORKFLOWS_TIMEZONE
-        try:
-            ZoneInfo(candidate)
-            return candidate
-        except Exception:
-            return DEFAULT_WORKFLOWS_TIMEZONE
-
-    def _localize_reference(self, timezone_name: str, reference_utc: Optional[datetime] = None) -> datetime:
-        utc_now = reference_utc or datetime.now(timezone.utc)
-        if utc_now.tzinfo is None:
-            utc_now = utc_now.replace(tzinfo=timezone.utc)
-        return utc_now.astimezone(ZoneInfo(self._normalize_timezone(timezone_name)))
-
-    def _compute_next_run(
-        self,
-        *,
-        cadence: str,
-        timezone_name: str,
-        send_hour_local: int,
-        send_minute_local: int,
-        send_weekdays: List[int],
-        reference_utc: Optional[datetime] = None,
-    ) -> datetime:
-        local_reference = self._localize_reference(timezone_name, reference_utc)
-        tzinfo = local_reference.tzinfo
-
-        def build_local_candidate(candidate_date: date) -> datetime:
-            return datetime.combine(
-                candidate_date,
-                time(hour=send_hour_local, minute=send_minute_local),
-                tzinfo=tzinfo,
-            )
-
-        weekdays = send_weekdays or [0, 1, 2, 3, 4, 5, 6]
-        candidate_date = local_reference.date()
-        for _ in range(14):
-            candidate = build_local_candidate(candidate_date)
-            if candidate > local_reference and candidate_date.weekday() in weekdays:
-                return candidate.astimezone(timezone.utc).replace(tzinfo=None)
-            candidate_date = candidate_date + timedelta(days=1)
-        return build_local_candidate(candidate_date).astimezone(timezone.utc).replace(tzinfo=None)
-
     def _resolve_window(self, *, timezone_name: str, reference_utc: Optional[datetime] = None) -> _WorkflowWindow:
-        local_reference = self._localize_reference(timezone_name, reference_utc)
+        local_reference = localize_reference(timezone_name, reference_utc)
         start_local = datetime.combine(local_reference.date(), time.min, tzinfo=local_reference.tzinfo)
         end_local = datetime.combine(local_reference.date(), time.max, tzinfo=local_reference.tzinfo)
         return _WorkflowWindow(
@@ -218,7 +176,7 @@ class WorkflowService:
         )
 
     def _build_idempotency_key(self, definition: WorkflowDefinitionDB, next_run_at: datetime) -> str:
-        local_dt = self._localize_reference(definition.timezone, next_run_at.replace(tzinfo=timezone.utc))
+        local_dt = localize_reference(definition.timezone, next_run_at.replace(tzinfo=timezone.utc))
         slot = f"{local_dt.date().isoformat()}-{int(definition.send_hour_local or 0):02d}:{int(definition.send_minute_local or 0):02d}"
         return f"{definition.id}:{slot}"
 
@@ -244,6 +202,7 @@ class WorkflowService:
             trigger_type=definition.trigger_type,  # type: ignore[arg-type]
             signal_kind=definition.signal_kind,
             cooldown_minutes=int(definition.cooldown_minutes or 0),
+            expected_duration_minutes=int(definition.expected_duration_minutes or 30),
             quiet_hours=self._parse_json(definition.quiet_hours_json, {}),
             status=definition.status,  # type: ignore[arg-type]
             schedule=WorkflowSchedule(
@@ -336,15 +295,8 @@ class WorkflowService:
         )
 
     async def _index_definition(self, definition: WorkflowDefinitionDB, profile: ActionProfileDB) -> None:
-        try:
-            from services.search_service import search_service
-
-            await search_service.index_workflow_definition(
-                self._definition_to_schema(definition, profile).model_dump(mode="json"),
-                definition.user_id,
-            )
-        except Exception:
-            logger.exception("Failed to index workflow definition %s", definition.id)
+        del definition, profile
+        return None
 
     async def ensure_default_action_profiles(self, session, user_id: str) -> List[ActionProfileDB]:
         result = await session.execute(
@@ -390,7 +342,7 @@ class WorkflowService:
         if draft_profile is None:
             raise RuntimeError("Draft action profile was not created")
 
-        normalized_timezone = self._normalize_timezone(timezone_name)
+        normalized_timezone = normalize_timezone(timezone_name)
         result = await session.execute(
             select(WorkflowDefinitionDB)
             .where(WorkflowDefinitionDB.user_id == user_id)
@@ -412,6 +364,7 @@ class WorkflowService:
                 trigger_type=defaults["trigger_type"],
                 signal_kind=defaults.get("signal_kind"),
                 cooldown_minutes=int(defaults.get("cooldown_minutes") or 240),
+                expected_duration_minutes=int(defaults.get("expected_duration_minutes") or 30),
                 quiet_hours_json=json.dumps(defaults.get("quiet_hours") or {}),
                 status=defaults["status"],
                 timezone=normalized_timezone,
@@ -494,6 +447,83 @@ class WorkflowService:
                 items=[self._definition_to_schema(definition, profile) for definition, profile in result.all()]
             )
 
+    async def create_definition(
+        self,
+        *,
+        user_id: str,
+        timezone_name: Optional[str],
+        payload: WorkflowDefinitionCreate,
+    ) -> WorkflowDefinitionRead:
+        name = payload.name.strip()
+        if not name:
+            raise WorkflowValidationError("name is required")
+
+        async with get_db_session() as session:
+            profiles = await self.ensure_default_action_profiles(session, user_id)
+            target_profile = None
+            if payload.action_profile_id:
+                target_profile = await session.get(ActionProfileDB, payload.action_profile_id)
+                if not target_profile or target_profile.user_id != user_id:
+                    raise WorkflowValidationError("Action profile not found")
+            if target_profile is None:
+                target_profile = next((item for item in profiles if bool(item.is_default)), None)
+            if target_profile is None:
+                target_profile = next((item for item in profiles if item.mode == "draft"), None)
+            if target_profile is None:
+                raise WorkflowValidationError("Action profile not found")
+
+            if target_profile.mode == "observe" and payload.status == "scheduled":
+                raise WorkflowValidationError("Observe profile cannot be assigned to a scheduled workflow")
+            if payload.status == "scheduled" and target_profile.mode not in {"draft", "organize", "act"}:
+                raise WorkflowValidationError("Scheduled workflows require Draft, Organize, or Act profiles")
+            if payload.definition_family == "ambient" and payload.trigger_type != "signal":
+                raise WorkflowValidationError("Ambient definitions must use signal triggers")
+            if payload.definition_family == "routine" and payload.trigger_type != "schedule":
+                raise WorkflowValidationError("Routine definitions must use schedule triggers")
+            if payload.trigger_type == "signal" and not (payload.signal_kind or "").strip():
+                raise WorkflowValidationError("Signal-triggered workflows require a signal kind")
+            if payload.delivery.channel != "in_app":
+                raise WorkflowValidationError("Only in-app delivery is supported")
+
+            definition = WorkflowDefinitionDB(
+                id=str(uuid4()),
+                user_id=user_id,
+                kind=payload.kind,
+                name=name,
+                definition_family=payload.definition_family,
+                trigger_type=payload.trigger_type,
+                signal_kind=payload.signal_kind,
+                cooldown_minutes=max(0, int(payload.cooldown_minutes or 0)),
+                expected_duration_minutes=int(payload.expected_duration_minutes),
+                quiet_hours_json=json.dumps(payload.quiet_hours),
+                status=payload.status,
+                timezone=normalize_timezone(payload.schedule.timezone or timezone_name),
+                cadence=payload.schedule.cadence,
+                send_hour_local=payload.schedule.send_hour_local,
+                send_minute_local=payload.schedule.send_minute_local,
+                send_weekdays_json=json.dumps(payload.schedule.send_weekdays),
+                delivery_channel=payload.delivery.channel,
+                delivery_json=json.dumps(payload.delivery.model_dump(mode="json")),
+                ranking_json=json.dumps(payload.ranking),
+                config_json=json.dumps(payload.config),
+                template_version=1,
+                action_profile_id=target_profile.id,
+                created_at=_utc_now(),
+                updated_at=_utc_now(),
+            )
+            if definition.status == "scheduled" and definition.trigger_type == "schedule":
+                definition.next_run_at = next_workflow_run_at(
+                    cadence=definition.cadence,
+                    timezone_name=definition.timezone,
+                    send_hour_local=int(definition.send_hour_local or 0),
+                    send_minute_local=int(definition.send_minute_local or 0),
+                    send_weekdays=self._parse_json(definition.send_weekdays_json, []),
+                )
+            session.add(definition)
+            await session.commit()
+            await self._index_definition(definition, target_profile)
+            return self._definition_to_schema(definition, target_profile)
+
     async def update_definition(
         self,
         *,
@@ -519,13 +549,18 @@ class WorkflowService:
                     raise WorkflowValidationError("Action profile not found")
 
             if payload.schedule is not None:
-                definition.timezone = self._normalize_timezone(payload.schedule.timezone)
+                definition.timezone = normalize_timezone(payload.schedule.timezone)
                 definition.cadence = payload.schedule.cadence
                 definition.send_hour_local = payload.schedule.send_hour_local
                 definition.send_minute_local = payload.schedule.send_minute_local
                 definition.send_weekdays_json = json.dumps(payload.schedule.send_weekdays)
             provided_fields = getattr(payload, "model_fields_set", set())
 
+            if "name" in provided_fields:
+                name = (payload.name or "").strip()
+                if not name:
+                    raise WorkflowValidationError("name is required")
+                definition.name = name
             if payload.definition_family is not None:
                 definition.definition_family = payload.definition_family
             if payload.trigger_type is not None:
@@ -545,6 +580,8 @@ class WorkflowService:
                 definition.delivery_json = json.dumps(payload.delivery.model_dump(mode="json"))
             if payload.cooldown_minutes is not None:
                 definition.cooldown_minutes = max(0, int(payload.cooldown_minutes))
+            if payload.expected_duration_minutes is not None:
+                definition.expected_duration_minutes = int(payload.expected_duration_minutes)
             if payload.action_profile_id:
                 definition.action_profile_id = target_profile.id
             if payload.status is not None:
@@ -556,7 +593,7 @@ class WorkflowService:
                 raise WorkflowValidationError("Scheduled workflows require Draft, Organize, or Act profiles")
 
             if definition.status == "scheduled" and definition.trigger_type == "schedule":
-                definition.next_run_at = self._compute_next_run(
+                definition.next_run_at = next_workflow_run_at(
                     cadence=definition.cadence,
                     timezone_name=definition.timezone,
                     send_hour_local=int(definition.send_hour_local or 0),
@@ -677,7 +714,7 @@ class WorkflowService:
                         )
                     )
                     queued += 1
-                definition.next_run_at = self._compute_next_run(
+                definition.next_run_at = next_workflow_run_at(
                     cadence=definition.cadence,
                     timezone_name=definition.timezone,
                     send_hour_local=int(definition.send_hour_local or 0),
@@ -733,7 +770,7 @@ class WorkflowService:
         if not start or not end:
             return False
         try:
-            local_now = self._localize_reference(timezone_name, now_utc)
+            local_now = localize_reference(timezone_name, now_utc)
             start_hour, start_minute = [int(part) for part in start.split(":", 1)]
             end_hour, end_minute = [int(part) for part in end.split(":", 1)]
             current_minutes = local_now.hour * 60 + local_now.minute
@@ -746,7 +783,7 @@ class WorkflowService:
             return False
 
     async def dispatch_ambient_candidates(self) -> Dict[str, int]:
-        from services.sms_copilot_signal_service import sms_copilot_signal_service
+        from services.ambient_signal_service import ambient_signal_service
 
         triggered = 0
         suppressed = 0
@@ -792,7 +829,7 @@ class WorkflowService:
                     suppressed += 1
                     continue
 
-                candidates = await sms_copilot_signal_service.evaluate_user(
+                candidates = await ambient_signal_service.evaluate_user(
                     user_id=definition.user_id,
                     now_utc=now.replace(tzinfo=timezone.utc),
                     kinds=[definition.signal_kind],
@@ -913,12 +950,20 @@ class WorkflowService:
             run.window_end = window.end_utc
             await session.commit()
 
+            # Routine-queued runs carry a per-run agent config in plan_json
+            # (definitions are unique per kind, so routines share them and
+            # override instructions/tier/data sources at run level).
+            run_input = self._parse_json(run.plan_json, None)
+            config = self._parse_json(definition.config_json, {})
+            if isinstance(run_input, dict) and isinstance(run_input.get("config_override"), dict):
+                config = {**config, **run_input["config_override"]}
+
             payload = await self._call_dashboard_executor(
                 user_id=user.id,
                 run_id=run.id,
                 workflow_kind=definition.kind,
                 timezone_name=definition.timezone,
-                config=self._parse_json(definition.config_json, {}),
+                config=config,
                 window=window,
             )
             artifact_payload = payload.get("artifact") or {}
@@ -980,7 +1025,10 @@ class WorkflowService:
                     ArtifactLinkCreate(target_type="fact", target_id=fact.id, relationship="suggested_from"),
                 )
 
-            run.plan_json = json.dumps(payload.get("plan") or {})
+            plan_payload = dict(payload.get("plan") or {})
+            if isinstance(run_input, dict) and run_input.get("routine_id"):
+                plan_payload.setdefault("routine_id", run_input["routine_id"])
+            run.plan_json = json.dumps(plan_payload)
             run.result_json = json.dumps(payload.get("result") or {})
             run.proposed_actions_json = json.dumps(proposed_actions)
             run.policy_decisions_json = json.dumps(policy_decisions_json)

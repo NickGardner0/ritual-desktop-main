@@ -1,11 +1,6 @@
-import { getComputerTimeDaily, getTopApps, getTopDomains } from '@/lib/computerActivity/client';
-import {
-  invokeDailySummariesWithInitRetry,
-  invokeDetailedActivityWithInitRetry,
-} from '@/lib/computerActivity/tauri-activity';
-import { normalizeComputerDailySummaryRow } from '@/lib/computerActivity/normalize';
-import { getStrictThisWeekRange } from '@/lib/ai/overview-activity/weekly-overview-utils.mjs';
-import { isTauri } from '@/lib/tauri-utils';
+import { getComputerTimeDaily, getTopApps, getTopDomains } from '@/lib/computerActivity';
+import { getStrictThisWeekRange } from '@ritual/chat-runtime/weekly-overview-utils';
+import { isDesktopRuntime } from '@/lib/desktop-capabilities';
 
 export type LocalOverviewActivityBundle = {
   startDate: string;
@@ -27,7 +22,7 @@ export type LocalOverviewActivityBundle = {
     hours: number;
     total_events: number;
   }>;
-  source: 'cloud_first' | 'tauri_fallback';
+  source: 'local' | 'synced' | 'unavailable';
 };
 
 export type OverviewActivityRangeKey =
@@ -45,7 +40,7 @@ export const overviewActivityKeys = {
 
 export function hasMeaningfulOverviewActivity(
   bundle: LocalOverviewActivityBundle | null | undefined,
-): boolean {
+): bundle is LocalOverviewActivityBundle {
   if (!bundle) return false;
 
   const hasDailyActivity = Array.isArray(bundle.daily) && bundle.daily.some((row) =>
@@ -191,141 +186,54 @@ export function getOverviewActivityRangeWindow(
   }
 }
 
-function normalizeDailyRows(rows: unknown[]): Array<{
-  day: string;
-  active_hours: number;
-  active_ms: number;
-  events_count: number;
-  apps_count?: number;
-  domain_count?: number;
-}> {
-  return rows
-    .map(normalizeComputerDailySummaryRow)
-    .filter((row): row is NonNullable<ReturnType<typeof normalizeComputerDailySummaryRow>> => Boolean(row))
-    .sort((a, b) => a.day.localeCompare(b.day))
-    .map((row) => ({
-      day: row.day,
-      active_hours: row.active_hours,
-      active_ms: row.active_ms,
-      events_count: row.events_count,
-      apps_count: row.apps_count ?? 0,
-      domain_count: row.domain_count ?? 0,
-    }));
-}
-
-function getDesktopRangeTimestamps(startDate: string, endDate: string): { startTs: number; endTs: number } {
-  return {
-    startTs: new Date(`${startDate}T00:00:00`).getTime(),
-    endTs: new Date(`${endDate}T23:59:59.999`).getTime(),
-  };
-}
-
-async function buildDesktopFallbackOverviewActivityBundle(
-  startDate: string,
-  endDate: string,
-): Promise<LocalOverviewActivityBundle> {
-  const { startTs, endTs } = getDesktopRangeTimestamps(startDate, endDate);
-  const [dailySummaries, detailed] = await Promise.all([
-    invokeDailySummariesWithInitRetry(startDate, endDate),
-    invokeDetailedActivityWithInitRetry({ startTs, endTs, limit: 25 }),
-  ]);
-
-  return {
-    startDate,
-    endDate,
-    daily: normalizeDailyRows(dailySummaries).map((row) => ({
-      day: row.day,
-      active_hours: Number(row.active_hours || 0),
-      events_count: Number(row.events_count || 0),
-      apps_count: Number(row.apps_count || 0),
-      source: 'tauri_fallback',
-    })),
-    apps: (Array.isArray(detailed.apps) ? detailed.apps : [])
-      .filter((row) => Math.max(0, Number(row.total_duration_ms || 0)) > 0)
-      .slice(0, 25)
-      .map((row) => ({
-        app_bundle_id: row.app_bundle_id,
-        app_name: row.app_name || row.app_bundle_id || 'Unknown',
-        hours: Math.max(0, Number(row.total_duration_ms || 0) / (1000 * 60 * 60)),
-        total_events: Math.max(0, Number(row.event_count || 0)),
-      })),
-    domains: (Array.isArray(detailed.domains) ? detailed.domains : [])
-      .filter((row) => Math.max(0, Number(row.total_duration_ms || 0)) > 0)
-      .slice(0, 25)
-      .map((row) => ({
-        domain: row.domain || 'Unknown',
-        hours: Math.max(0, Number(row.total_duration_ms || 0) / (1000 * 60 * 60)),
-        total_events: Math.max(0, Number(row.event_count || 0)),
-      })),
-    source: 'tauri_fallback',
-  };
+function resolveOverviewReadSource(
+  rows: Array<{ source?: string }>,
+): LocalOverviewActivityBundle['source'] {
+  const sources = rows.map((row) => row?.source);
+  if (sources.includes('local')) return 'local';
+  if (sources.includes('unavailable')) return 'unavailable';
+  return 'synced';
 }
 
 export async function buildLocalOverviewActivityBundle(
   startDate: string,
   endDate: string,
 ): Promise<LocalOverviewActivityBundle> {
-  let backendBundle: LocalOverviewActivityBundle | null = null;
+  const [apps, domains, daily] = await Promise.all([
+    getTopApps({ startDate, endDate }, 25),
+    getTopDomains({ startDate, endDate }, 25),
+    getComputerTimeDaily({ startDate, endDate }),
+  ]);
 
-  try {
-    const [detailed, daily] = await Promise.all([
-      Promise.all([
-        getTopApps({ startDate, endDate }, 25),
-        getTopDomains({ startDate, endDate }, 25),
-      ]),
-      getComputerTimeDaily({ startDate, endDate }),
-    ]);
-    const [apps, domains] = detailed;
-    const source: LocalOverviewActivityBundle['source'] =
-      [...daily, ...apps, ...domains].some((row) => row?.source === 'tauri_fallback')
-        ? 'tauri_fallback'
-        : 'cloud_first';
-
-    backendBundle = {
-      startDate,
-      endDate,
-      daily: daily.map((row) => ({
-        day: row.day,
-        active_hours: Number(row.active_hours || 0),
-        events_count: Number(row.events_count || 0),
-        apps_count: Number(row.apps_count || 0),
-      })),
-      apps: apps.map((row) => ({
-        app_bundle_id: row.app_bundle_id,
-        app_name: row.app_name,
-        hours: Number(row.hours || 0),
-        total_events: Number(row.total_events || 0),
-      })),
-      domains: domains.map((row) => ({
-        domain: row.domain,
-        hours: Number(row.hours || 0),
-        total_events: Number(row.total_events || 0),
-      })),
-      source,
-    };
-
-    if (!isTauri() || hasMeaningfulOverviewActivity(backendBundle)) {
-      return backendBundle;
-    }
-  } catch (error) {
-    if (!isTauri()) throw error;
-  }
-
-  try {
-    return await buildDesktopFallbackOverviewActivityBundle(startDate, endDate);
-  } catch (fallbackError) {
-    if (backendBundle) {
-      return backendBundle;
-    }
-    throw fallbackError;
-  }
+  return {
+    startDate,
+    endDate,
+    daily: daily.map((row) => ({
+      day: row.day,
+      active_hours: Number(row.active_hours || 0),
+      events_count: Number(row.events_count || 0),
+      apps_count: Number(row.apps_count || 0),
+    })),
+    apps: apps.map((row) => ({
+      app_bundle_id: row.app_bundle_id,
+      app_name: row.app_name,
+      hours: Number(row.hours || 0),
+      total_events: Number(row.total_events || 0),
+    })),
+    domains: domains.map((row) => ({
+      domain: row.domain,
+      hours: Number(row.hours || 0),
+      total_events: Number(row.total_events || 0),
+    })),
+    source: resolveOverviewReadSource([...daily, ...apps, ...domains]),
+  };
 }
 
 export async function getOverviewActivityBundle(
   rangeKey: OverviewActivityRangeKey,
   timezone: string,
 ): Promise<LocalOverviewActivityBundle | null> {
-  if (!isTauri()) return null;
+  if (!isDesktopRuntime()) return null;
   const { startDate, endDate } = getOverviewActivityRangeWindow(rangeKey, timezone);
   return buildLocalOverviewActivityBundle(startDate, endDate);
 }

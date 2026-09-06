@@ -4,6 +4,38 @@ import BackgroundTasks
 import UIKit
 import UserNotifications
 
+enum AnchorCommitPolicy {
+    static func confirmedTokensForCommit(
+        allBatchesAccepted: Bool,
+        pendingTokens: [String: String],
+        serverConfirmedTokens: [String: String]?
+    ) -> [String: String] {
+        guard allBatchesAccepted,
+              !pendingTokens.isEmpty,
+              let serverConfirmedTokens else {
+            return [:]
+        }
+        return serverConfirmedTokens.filter { metricType, confirmedToken in
+            pendingTokens[metricType] == confirmedToken
+        }
+    }
+}
+
+enum RetryScope {
+    case dayKeys(Set<String>)
+    case dateRange(ClosedRange<Date>)
+
+    static func normalizedDateRange(
+        startDate: Date,
+        endDate: Date,
+        calendar: Calendar = .current
+    ) -> RetryScope {
+        let start = calendar.startOfDay(for: min(startDate, endDate))
+        let end = calendar.startOfDay(for: max(startDate, endDate))
+        return .dateRange(start ... end)
+    }
+}
+
 /// V2 Background Sync Manager with incremental sync, offline queue, and better error handling
 final class BackgroundSyncManagerV2: @unchecked Sendable {
     
@@ -299,7 +331,7 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
         cachedMetricTypes = metricTypes
         
         for metricType in metricTypes {
-            guard let hkType = healthKitType(for: metricType) else { continue }
+            guard let hkType = HealthKitManagerV2.sampleType(for: metricType) else { continue }
             
             do {
                 try await healthStore.enableBackgroundDelivery(for: hkType, frequency: .immediate)
@@ -392,12 +424,6 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
         let syncMode: MetricSyncMode
         let projectsToHabitLogs: Bool
         let safeHistoryDays: Int?
-    }
-
-    private struct QueuedIngestPayload: Codable {
-        let added: [NormalizedMetric]
-        let deleted: [String]
-        let modified: [NormalizedMetric]
     }
 
     private struct IngestBatch {
@@ -956,20 +982,12 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
                 historyFailedMetricTypes.formUnion(batchMetricTypes)
                 historyFailedDays.formUnion(batchDayKeys)
                 
-                let encoder = JSONEncoder()
-                let queuedPayload = QueuedIngestPayload(
+                let queuedPayload = IngestEnvelopeV1(
                     added: batch.added,
                     deleted: batch.deleted,
                     modified: []
                 )
-                let payloadData = try? encoder.encode(queuedPayload)
-                if let data = payloadData {
-                    _ = offlineQueue.enqueue(
-                        clientEventId: UUID().uuidString,
-                        payload: data,
-                        metricCount: batch.added.count + batch.deleted.count
-                    )
-                }
+                _ = offlineQueue.enqueue(envelope: queuedPayload)
                 telemetryEvents.append(makeTelemetryEvent(
                     eventType: "upload_batch",
                     taskType: taskType,
@@ -1039,9 +1057,14 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
             lastError = nil
             syncCount += 1
 
-            if allBatchesSucceeded && !pendingAnchors.isEmpty {
+            let committableAnchorTokens = AnchorCommitPolicy.confirmedTokensForCommit(
+                allBatchesAccepted: allBatchesSucceeded,
+                pendingTokens: pendingAnchorTokens,
+                serverConfirmedTokens: confirmedAnchorTokens
+            )
+            if !committableAnchorTokens.isEmpty && !pendingAnchors.isEmpty {
                 healthKitManager.confirmAnchorsFromServer(
-                    confirmedAnchorTokens: confirmedAnchorTokens,
+                    confirmedAnchorTokens: committableAnchorTokens,
                     pendingAnchors: pendingAnchors
                 )
             }
@@ -1131,7 +1154,6 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
     }
 
     /// Retry sync for specific failed day keys (YYYY-MM-DD).
-    /// This is used by the UI to recover from partial/failed sync runs.
     @discardableResult
     func retryFailedDays(_ failedDayKeys: [String]) async -> Int {
         let normalizedDayKeys = Set(
@@ -1139,24 +1161,94 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
                 .map { String($0.prefix(10)) }
                 .filter { $0.count == 10 }
         )
+        return await runRetry(scope: .dayKeys(normalizedDayKeys)).syncedMetricCount
+    }
 
-        guard !normalizedDayKeys.isEmpty else { return 0 }
+    @discardableResult
+    func retryDateRange(startDate: Date, endDate: Date) async -> RetryDateRangeResult {
+        let run = await runRetry(
+            scope: .normalizedDateRange(startDate: startDate, endDate: endDate)
+        )
+        let result = RetryDateRangeResult(
+            attemptedDays: run.attemptedDayKeys.count,
+            syncedMetricCount: run.syncedMetricCount,
+            failedDays: run.failedDays,
+            queuedBatchCount: run.queuedBatchCount,
+            errorMessage: run.errorMessage
+        )
 
+        await MainActor.run {
+            NotificationCenter.default.post(
+                name: .syncRetryCompleted,
+                object: nil,
+                userInfo: [
+                    "attemptedDays": result.attemptedDays,
+                    "syncedMetricCount": result.syncedMetricCount,
+                    "failedDays": result.failedDays,
+                    "queuedBatchCount": result.queuedBatchCount,
+                ]
+            )
+        }
+
+        if !result.failedDays.isEmpty {
+            Task { @MainActor in
+                NotificationManager.shared.sendRetryCompleted(
+                    remainingFailedDays: result.failedDays.count,
+                    syncedMetricCount: result.syncedMetricCount
+                )
+            }
+        }
+        return result
+    }
+
+    private struct RetryRunResult {
+        let attemptedDayKeys: [String]
+        let syncedMetricCount: Int
+        let failedDays: [String]
+        let queuedBatchCount: Int
+        let errorMessage: String?
+    }
+
+    private func runRetry(scope: RetryScope) async -> RetryRunResult {
+        let attemptedDayKeys: [String]
+        switch scope {
+        case let .dayKeys(keys):
+            attemptedDayKeys = keys.sorted()
+        case let .dateRange(range):
+            attemptedDayKeys = dayKeys(from: range.lowerBound, to: range.upperBound)
+        }
+        let attemptedSet = Set(attemptedDayKeys)
+
+        func result(
+            synced: Int = 0,
+            failedDays: Set<String> = [],
+            queued: Int = 0,
+            error: String? = nil
+        ) -> RetryRunResult {
+            RetryRunResult(
+                attemptedDayKeys: attemptedDayKeys,
+                syncedMetricCount: synced,
+                failedDays: Array(failedDays).sorted(),
+                queuedBatchCount: queued,
+                errorMessage: error
+            )
+        }
+
+        guard !attemptedDayKeys.isEmpty else {
+            return result(error: "No valid dates selected.")
+        }
         guard beginSyncingIfIdle() else {
-            #if DEBUG
-            print("⚠️ Sync already in progress")
-            #endif
-            return 0
+            return result(failedDays: attemptedSet, error: "Sync already in progress.")
         }
         defer { endSyncing() }
 
         let syncStartTime = Date()
         var historyMetricTypes: [String] = []
-        var historyFailedMetricTypes = Set<String>()
-        var historyFailedDays = Set<String>()
-        var historyFailedBatches = 0
-        var historyQueuedBatches = 0
-        var historyAddedCount = 0
+        var failedMetricTypes = Set<String>()
+        var failedDays = Set<String>()
+        var failedBatchCount = 0
+        var queuedBatchCount = 0
+        var syncedMetricCount = 0
 
         func recordHistory(succeeded: Bool, errorMessage: String?) {
             appendSyncHistory(
@@ -1166,24 +1258,24 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
                     finishedAt: Date(),
                     isBackground: false,
                     isRetry: true,
-                    windowDays: maxIncrementalDaysBack,
+                    windowDays: attemptedDayKeys.count,
                     succeeded: succeeded,
-                    addedCount: historyAddedCount,
-                    failedBatchCount: historyFailedBatches,
-                    queuedBatchCount: historyQueuedBatches,
+                    addedCount: syncedMetricCount,
+                    failedBatchCount: failedBatchCount,
+                    queuedBatchCount: queuedBatchCount,
                     metricTypes: historyMetricTypes,
-                    failedMetricTypes: Array(historyFailedMetricTypes).sorted(),
-                    failedDays: Array(historyFailedDays).sorted(),
+                    failedMetricTypes: Array(failedMetricTypes).sorted(),
+                    failedDays: Array(failedDays).sorted(),
                     errorMessage: errorMessage
                 )
             )
         }
 
         lastSyncAttemptTime = Date()
-
         guard await apiClient.hasStoredCredentials else {
-            recordHistory(succeeded: false, errorMessage: "No stored credentials")
-            return 0
+            let message = "No stored credentials"
+            recordHistory(succeeded: false, errorMessage: message)
+            return result(failedDays: attemptedSet, error: message)
         }
 
         do {
@@ -1191,8 +1283,10 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
         } catch let error as APIError where error.requiresReauth {
             lastError = error.localizedDescription
             lastErrorTime = Date()
-            postSyncActionRequired(.authExpired, message: "Authentication expired. Open Ritual and sign in again.")
-
+            postSyncActionRequired(
+                .authExpired,
+                message: "Authentication expired. Open Ritual and sign in again."
+            )
             await MainActor.run {
                 NotificationCenter.default.post(
                     name: NSNotification.Name("RequiresReauthentication"),
@@ -1200,9 +1294,8 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
                 )
             }
             await scheduleReauthLocalNotification()
-
             recordHistory(succeeded: false, errorMessage: error.localizedDescription)
-            return 0
+            return result(failedDays: attemptedSet, error: error.localizedDescription)
         } catch {
             #if DEBUG
             print("⚠️ Token refresh error during retry: \(error)")
@@ -1212,14 +1305,8 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
         let metricPlans: [MetricSyncPlan]
         do {
             let response = try await apiClient.fetchTrackedMetrics()
-            let syncModes = syncModesByMetricType(from: response)
-            if cachedMetricSyncModes != syncModes {
-                cachedMetricSyncModes = syncModes
-            }
-            let projectionFlags = projectionFlagsByMetricType(from: response)
-            if cachedMetricProjectionFlags != projectionFlags {
-                cachedMetricProjectionFlags = projectionFlags
-            }
+            cachedMetricSyncModes = syncModesByMetricType(from: response)
+            cachedMetricProjectionFlags = projectionFlagsByMetricType(from: response)
             metricPlans = syncPlans(from: response)
         } catch {
             #if DEBUG
@@ -1233,47 +1320,69 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
         }
 
         historyMetricTypes = metricPlans.map(\.metricType)
-
         guard !metricPlans.isEmpty else {
-            recordHistory(succeeded: false, errorMessage: "No metric types configured")
-            postSyncActionRequired(.noMetricsConfigured, message: "No tracked metrics configured. Choose metrics in Ritual desktop.")
-            return 0
+            let message = "No metric types configured"
+            recordHistory(succeeded: false, errorMessage: message)
+            postSyncActionRequired(
+                .noMetricsConfigured,
+                message: "No tracked metrics configured. Choose metrics in Ritual desktop."
+            )
+            return result(failedDays: attemptedSet, error: message)
         }
 
         var retryMetrics: [NormalizedMetric] = []
-
         for plan in metricPlans {
             do {
-                let metrics = try await healthKitManager.fetchMetrics(
-                    for: plan.metricType,
-                    syncMode: plan.syncMode,
-                    daysBack: maxIncrementalDaysBack
-                )
-
-                let filtered = metrics.filter { metric in
-                    guard let dayKey = dayKey(for: metric) else { return false }
-                    return normalizedDayKeys.contains(dayKey)
-                }.map {
-                    $0.withShouldProjectToHabitLogs(plan.syncMode == .dailyOnly ? plan.projectsToHabitLogs : false)
-                }
-
-                retryMetrics.append(contentsOf: filtered)
-
-                if plan.syncMode == .granular && plan.projectsToHabitLogs {
-                    let dailyMetrics = try await healthKitManager.fetchMetrics(
+                let metrics: [NormalizedMetric]
+                switch scope {
+                case .dayKeys:
+                    metrics = try await healthKitManager.fetchMetrics(
                         for: plan.metricType,
-                        syncMode: .dailyOnly,
+                        syncMode: plan.syncMode,
                         daysBack: maxIncrementalDaysBack
                     )
+                case let .dateRange(range):
+                    metrics = try await healthKitManager.fetchMetrics(
+                        for: plan.metricType,
+                        syncMode: plan.syncMode,
+                        startDate: range.lowerBound,
+                        endDate: range.upperBound
+                    )
+                }
+                retryMetrics.append(contentsOf: metrics.filter { metric in
+                    dayKey(for: metric).map(attemptedSet.contains) ?? false
+                }.map {
+                    $0.withShouldProjectToHabitLogs(
+                        plan.syncMode == .dailyOnly ? plan.projectsToHabitLogs : false
+                    )
+                })
+
+                if plan.syncMode == .granular && plan.projectsToHabitLogs {
+                    let dailyMetrics: [NormalizedMetric]
+                    switch scope {
+                    case .dayKeys:
+                        dailyMetrics = try await healthKitManager.fetchMetrics(
+                            for: plan.metricType,
+                            syncMode: .dailyOnly,
+                            daysBack: maxIncrementalDaysBack
+                        )
+                    case let .dateRange(range):
+                        dailyMetrics = try await healthKitManager.fetchMetrics(
+                            for: plan.metricType,
+                            syncMode: .dailyOnly,
+                            startDate: range.lowerBound,
+                            endDate: range.upperBound
+                        )
+                    }
                     retryMetrics.append(contentsOf: dailyMetrics.filter { metric in
-                        guard let dayKey = dayKey(for: metric) else { return false }
-                        return normalizedDayKeys.contains(dayKey)
+                        dayKey(for: metric).map(attemptedSet.contains) ?? false
                     }.map {
                         $0.withShouldProjectToHabitLogs(true)
                     })
                 }
             } catch {
-                historyFailedMetricTypes.insert(plan.metricType)
+                failedMetricTypes.insert(plan.metricType)
+                failedDays.formUnion(attemptedSet)
                 #if DEBUG
                 print("⚠️ Failed to fetch retry metrics for \(plan.metricType): \(error.localizedDescription)")
                 #endif
@@ -1281,56 +1390,48 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
         }
 
         guard !retryMetrics.isEmpty else {
-            let historyError = historyFailedMetricTypes.isEmpty ? "No retry data found for selected days" : "Failed to load retry metrics"
-            recordHistory(succeeded: false, errorMessage: historyError)
-            return 0
+            let message = failedMetricTypes.isEmpty
+                ? "No retry data found for selected dates."
+                : "Failed to load retry metrics."
+            recordHistory(succeeded: false, errorMessage: message)
+            postSyncActionRequired(.partialFailure, message: message)
+            return result(failedDays: failedDays.isEmpty ? attemptedSet : failedDays, error: message)
         }
 
-        let batchSize = 400
-        let batches = stride(from: 0, to: retryMetrics.count, by: batchSize).map {
-            Array(retryMetrics[$0..<min($0 + batchSize, retryMetrics.count)])
+        let batches = stride(from: 0, to: retryMetrics.count, by: 400).map {
+            Array(retryMetrics[$0 ..< min($0 + 400, retryMetrics.count)])
         }
 
-        var totalSuccess = 0
-        var allBatchesSucceeded = true
-
-        for (index, batch) in batches.enumerated() {
-            if batch.isEmpty { continue }
-
+        for (index, batch) in batches.enumerated() where !batch.isEmpty {
+            let batchMetricTypes = metricTypeSet(from: batch)
+            let batchDayKeys = dayKeys(from: batch)
             do {
                 let response = try await apiClient.ingestMetricsV2(
                     added: batch,
                     deleted: [],
                     modified: []
                 )
-
-                if response.success {
-                    totalSuccess += batch.count
-                } else {
-                    allBatchesSucceeded = false
-                    historyFailedBatches += 1
-                    historyFailedMetricTypes.formUnion(metricTypeSet(from: batch))
-                    historyFailedDays.formUnion(dayKeys(from: batch))
+                let successfulCount = response.success
+                    ? (response.addedResults.isEmpty
+                        ? batch.count
+                        : response.addedResults.filter(\.success).count)
+                    : 0
+                syncedMetricCount += successfulCount
+                if successfulCount != batch.count {
+                    failedBatchCount += 1
+                    failedMetricTypes.formUnion(batchMetricTypes)
+                    failedDays.formUnion(batchDayKeys)
                 }
             } catch let error as APIError where error.shouldQueue {
-                allBatchesSucceeded = false
-                historyFailedBatches += 1
-                historyQueuedBatches += 1
-                historyFailedMetricTypes.formUnion(metricTypeSet(from: batch))
-                historyFailedDays.formUnion(dayKeys(from: batch))
-
-                if let data = try? JSONEncoder().encode(batch) {
-                    _ = offlineQueue.enqueue(
-                        clientEventId: UUID().uuidString,
-                        payload: data,
-                        metricCount: batch.count
-                    )
-                }
+                failedBatchCount += 1
+                queuedBatchCount += 1
+                failedMetricTypes.formUnion(batchMetricTypes)
+                failedDays.formUnion(batchDayKeys)
+                _ = offlineQueue.enqueue(envelope: IngestEnvelopeV1(added: batch))
             } catch {
-                allBatchesSucceeded = false
-                historyFailedBatches += 1
-                historyFailedMetricTypes.formUnion(metricTypeSet(from: batch))
-                historyFailedDays.formUnion(dayKeys(from: batch))
+                failedBatchCount += 1
+                failedMetricTypes.formUnion(batchMetricTypes)
+                failedDays.formUnion(batchDayKeys)
                 #if DEBUG
                 print("⚠️ Retry batch \(index + 1) failed: \(error.localizedDescription)")
                 #endif
@@ -1341,308 +1442,52 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
             }
         }
 
-        historyAddedCount = totalSuccess
-
-        if totalSuccess > 0 {
+        let succeeded = failedBatchCount == 0 && failedMetricTypes.isEmpty
+        let errorMessage = succeeded ? nil : (syncedMetricCount > 0 ? "Retry partially succeeded" : "Retry failed")
+        if syncedMetricCount > 0 {
             lastSyncTime = Date()
             lastError = nil
             syncCount += 1
-
-            let addedCount = totalSuccess
             let completionTime = Date()
             await MainActor.run {
                 NotificationCenter.default.post(
                     name: NSNotification.Name("BackgroundSyncCompleted"),
                     object: nil,
                     userInfo: [
-                        "addedCount": addedCount,
-                        "deletedCount": 0,
-                        "time": completionTime,
-                        "isRetry": true
-                    ]
-                )
-            }
-
-            recordHistory(
-                succeeded: allBatchesSucceeded,
-                errorMessage: allBatchesSucceeded ? nil : "Retry partially succeeded"
-            )
-            if !allBatchesSucceeded {
-                postSyncActionRequired(.partialFailure, message: "Retry only partially succeeded. Open Ritual to retry remaining days.")
-            }
-            if historyQueuedBatches > 0 {
-                postSyncActionRequired(.networkQueued, message: "Retry batches were queued due to network issues.")
-            }
-        } else {
-            lastError = "Retry failed"
-            lastErrorTime = Date()
-            recordHistory(succeeded: false, errorMessage: "Retry failed")
-            if historyQueuedBatches > 0 {
-                postSyncActionRequired(.networkQueued, message: "Retry batches were queued due to network issues.")
-            } else {
-                postSyncActionRequired(.partialFailure, message: "Retry failed. Open Ritual to try again.")
-            }
-        }
-
-        return totalSuccess
-    }
-
-    @discardableResult
-    func retryDateRange(startDate: Date, endDate: Date) async -> RetryDateRangeResult {
-        let calendar = Calendar.current
-        let normalizedStart = calendar.startOfDay(for: min(startDate, endDate))
-        let normalizedEnd = calendar.startOfDay(for: max(startDate, endDate))
-        let attemptedDayKeys = dayKeys(from: normalizedStart, to: normalizedEnd)
-
-        guard !attemptedDayKeys.isEmpty else {
-            return RetryDateRangeResult(
-                attemptedDays: 0,
-                syncedMetricCount: 0,
-                failedDays: [],
-                queuedBatchCount: 0,
-                errorMessage: "No valid dates selected."
-            )
-        }
-
-        guard beginSyncingIfIdle() else {
-            return RetryDateRangeResult(
-                attemptedDays: attemptedDayKeys.count,
-                syncedMetricCount: 0,
-                failedDays: attemptedDayKeys,
-                queuedBatchCount: 0,
-                errorMessage: "Sync already in progress."
-            )
-        }
-        defer { endSyncing() }
-
-        lastSyncAttemptTime = Date()
-
-        guard await apiClient.hasStoredCredentials else {
-            return RetryDateRangeResult(
-                attemptedDays: attemptedDayKeys.count,
-                syncedMetricCount: 0,
-                failedDays: attemptedDayKeys,
-                queuedBatchCount: 0,
-                errorMessage: "No stored credentials"
-            )
-        }
-
-        do {
-            try await apiClient.ensureValidToken()
-        } catch let error as APIError where error.requiresReauth {
-            lastError = error.localizedDescription
-            lastErrorTime = Date()
-            postSyncActionRequired(.authExpired, message: "Authentication expired. Open Ritual and sign in again.")
-            await MainActor.run {
-                NotificationCenter.default.post(
-                    name: NSNotification.Name("RequiresReauthentication"),
-                    object: nil
-                )
-            }
-            await scheduleReauthLocalNotification()
-            return RetryDateRangeResult(
-                attemptedDays: attemptedDayKeys.count,
-                syncedMetricCount: 0,
-                failedDays: attemptedDayKeys,
-                queuedBatchCount: 0,
-                errorMessage: error.localizedDescription
-            )
-        } catch {
-            #if DEBUG
-            print("⚠️ Token refresh error during date-range retry: \(error)")
-            #endif
-        }
-
-        let metricPlans: [MetricSyncPlan]
-        do {
-            let response = try await apiClient.fetchTrackedMetrics()
-            let syncModes = syncModesByMetricType(from: response)
-            if cachedMetricSyncModes != syncModes {
-                cachedMetricSyncModes = syncModes
-            }
-            let projectionFlags = projectionFlagsByMetricType(from: response)
-            if cachedMetricProjectionFlags != projectionFlags {
-                cachedMetricProjectionFlags = projectionFlags
-            }
-            metricPlans = syncPlans(from: response)
-        } catch {
-            metricPlans = syncPlans(
-                metricTypes: cachedMetricTypes,
-                syncModes: cachedMetricSyncModes,
-                projectionFlags: cachedMetricProjectionFlags
-            )
-        }
-
-        guard !metricPlans.isEmpty else {
-            postSyncActionRequired(.noMetricsConfigured, message: "No tracked metrics configured. Choose metrics in Ritual desktop.")
-            return RetryDateRangeResult(
-                attemptedDays: attemptedDayKeys.count,
-                syncedMetricCount: 0,
-                failedDays: attemptedDayKeys,
-                queuedBatchCount: 0,
-                errorMessage: "No metric types configured"
-            )
-        }
-
-        var retryMetrics: [NormalizedMetric] = []
-        var dataLoadFailedDays = Set<String>()
-
-        for plan in metricPlans {
-            do {
-                let metrics = try await healthKitManager.fetchMetrics(
-                    for: plan.metricType,
-                    syncMode: plan.syncMode,
-                    startDate: normalizedStart,
-                    endDate: normalizedEnd
-                )
-                let filtered = metrics.filter { metric in
-                    guard let key = dayKey(for: metric) else { return false }
-                    return attemptedDayKeys.contains(key)
-                }.map {
-                    $0.withShouldProjectToHabitLogs(plan.syncMode == .dailyOnly ? plan.projectsToHabitLogs : false)
-                }
-                retryMetrics.append(contentsOf: filtered)
-
-                if plan.syncMode == .granular && plan.projectsToHabitLogs {
-                    let dailyMetrics = try await healthKitManager.fetchMetrics(
-                        for: plan.metricType,
-                        syncMode: .dailyOnly,
-                        startDate: normalizedStart,
-                        endDate: normalizedEnd
-                    )
-                    retryMetrics.append(contentsOf: dailyMetrics.filter { metric in
-                        guard let key = dayKey(for: metric) else { return false }
-                        return attemptedDayKeys.contains(key)
-                    }.map {
-                        $0.withShouldProjectToHabitLogs(true)
-                    })
-                }
-            } catch {
-                #if DEBUG
-                print("⚠️ Failed to load \(plan.metricType) for date-range retry: \(error.localizedDescription)")
-                #endif
-                dataLoadFailedDays.formUnion(attemptedDayKeys)
-            }
-        }
-
-        guard !retryMetrics.isEmpty else {
-            let failed = Array(Set(attemptedDayKeys).union(dataLoadFailedDays)).sorted()
-            postSyncActionRequired(.partialFailure, message: "No data available for selected retry dates.")
-            return RetryDateRangeResult(
-                attemptedDays: attemptedDayKeys.count,
-                syncedMetricCount: 0,
-                failedDays: failed,
-                queuedBatchCount: 0,
-                errorMessage: "No retry data found for selected dates."
-            )
-        }
-
-        let batchSize = 400
-        let batches = stride(from: 0, to: retryMetrics.count, by: batchSize).map {
-            Array(retryMetrics[$0..<min($0 + batchSize, retryMetrics.count)])
-        }
-
-        var totalSuccess = 0
-        var queuedBatchCount = 0
-        var failedDays = dataLoadFailedDays
-
-        for (index, batch) in batches.enumerated() {
-            if batch.isEmpty { continue }
-
-            do {
-                let response = try await apiClient.ingestMetricsV2(
-                    added: batch,
-                    deleted: [],
-                    modified: []
-                )
-                if response.success {
-                    totalSuccess += batch.count
-                } else {
-                    failedDays.formUnion(dayKeys(from: batch))
-                }
-            } catch let error as APIError where error.shouldQueue {
-                queuedBatchCount += 1
-                failedDays.formUnion(dayKeys(from: batch))
-                if let data = try? JSONEncoder().encode(batch) {
-                    _ = offlineQueue.enqueue(
-                        clientEventId: UUID().uuidString,
-                        payload: data,
-                        metricCount: batch.count
-                    )
-                }
-            } catch {
-                #if DEBUG
-                print("⚠️ Date-range retry batch \(index + 1) failed: \(error.localizedDescription)")
-                #endif
-                failedDays.formUnion(dayKeys(from: batch))
-            }
-
-            if index < batches.count - 1 {
-                try? await Task.sleep(nanoseconds: 50_000_000)
-            }
-        }
-
-        if totalSuccess > 0 {
-            lastSyncTime = Date()
-            lastError = nil
-            syncCount += 1
-            let addedCount = totalSuccess
-            let completionTime = Date()
-            await MainActor.run {
-                NotificationCenter.default.post(
-                    name: NSNotification.Name("BackgroundSyncCompleted"),
-                    object: nil,
-                    userInfo: [
-                        "addedCount": addedCount,
+                        "addedCount": syncedMetricCount,
                         "deletedCount": 0,
                         "time": completionTime,
                         "isRetry": true,
-                        "isDateRangeRetry": true
                     ]
                 )
             }
         } else {
-            lastError = "Date-range retry failed"
+            lastError = errorMessage
             lastErrorTime = Date()
         }
 
-        let result = RetryDateRangeResult(
-            attemptedDays: attemptedDayKeys.count,
-            syncedMetricCount: totalSuccess,
-            failedDays: Array(failedDays).sorted(),
-            queuedBatchCount: queuedBatchCount,
-            errorMessage: totalSuccess > 0 ? nil : "Retry failed"
-        )
-
-        await MainActor.run {
-            NotificationCenter.default.post(
-                name: .syncRetryCompleted,
-                object: nil,
-                userInfo: [
-                    "attemptedDays": result.attemptedDays,
-                    "syncedMetricCount": result.syncedMetricCount,
-                    "failedDays": result.failedDays,
-                    "queuedBatchCount": result.queuedBatchCount
-                ]
+        recordHistory(succeeded: succeeded, errorMessage: errorMessage)
+        if !failedDays.isEmpty {
+            postSyncActionRequired(
+                .partialFailure,
+                message: "Retry completed with remaining failed days."
+            )
+        }
+        if queuedBatchCount > 0 {
+            postSyncActionRequired(
+                .networkQueued,
+                message: "Retry batches were queued due to network issues."
             )
         }
 
-        if !result.failedDays.isEmpty {
-            postSyncActionRequired(.partialFailure, message: "Retry completed with remaining failed days.")
-            Task { @MainActor in
-                NotificationManager.shared.sendRetryCompleted(
-                    remainingFailedDays: result.failedDays.count,
-                    syncedMetricCount: result.syncedMetricCount
-                )
-            }
-        }
-        if result.queuedBatchCount > 0 {
-            postSyncActionRequired(.networkQueued, message: "Retry batches were queued due to network issues.")
-        }
-
-        return result
+        return result(
+            synced: syncedMetricCount,
+            failedDays: failedDays,
+            queued: queuedBatchCount,
+            error: errorMessage
+        )
     }
-    
+
     /// Flush the offline queue
     private func flushOfflineQueue() async {
         let payloads = await offlineQueue.processQueue()
@@ -1650,16 +1495,12 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
         for payload in payloads {
             do {
                 let decoder = JSONDecoder()
-                let queuedPayload: QueuedIngestPayload
-                if let decoded = try? decoder.decode(QueuedIngestPayload.self, from: payload.payload) {
+                let queuedPayload: IngestEnvelopeV1
+                if let decoded = try? decoder.decode(IngestEnvelopeV1.self, from: payload.payload) {
                     queuedPayload = decoded
                 } else {
                     let legacyMetrics = try decoder.decode([NormalizedMetric].self, from: payload.payload)
-                    queuedPayload = QueuedIngestPayload(
-                        added: legacyMetrics,
-                        deleted: [],
-                        modified: []
-                    )
+                    queuedPayload = IngestEnvelopeV1(added: legacyMetrics)
                 }
                 
                 let response = try await apiClient.ingestMetricsV2(
@@ -2062,59 +1903,6 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
         }
     }
 
-    private func healthKitType(for metricType: String) -> HKSampleType? {
-        switch metricType {
-        // Activity
-        case "steps": return HKQuantityType.quantityType(forIdentifier: .stepCount)
-        case "active_energy": return HKQuantityType.quantityType(forIdentifier: .activeEnergyBurned)
-        case "basal_energy": return HKQuantityType.quantityType(forIdentifier: .basalEnergyBurned)
-        case "distance": return HKQuantityType.quantityType(forIdentifier: .distanceWalkingRunning)
-        case "flights_climbed": return HKQuantityType.quantityType(forIdentifier: .flightsClimbed)
-        case "exercise_time": return HKQuantityType.quantityType(forIdentifier: .appleExerciseTime)
-        case "stand_time": return HKQuantityType.quantityType(forIdentifier: .appleStandTime)
-        // Heart
-        case "hr": return HKQuantityType.quantityType(forIdentifier: .heartRate)
-        case "hrv": return HKQuantityType.quantityType(forIdentifier: .heartRateVariabilitySDNN)
-        case "resting_hr": return HKQuantityType.quantityType(forIdentifier: .restingHeartRate)
-        case "walking_hr": return HKQuantityType.quantityType(forIdentifier: .walkingHeartRateAverage)
-        // Respiratory
-        case "respiratory_rate": return HKQuantityType.quantityType(forIdentifier: .respiratoryRate)
-        case "oxygen_saturation": return HKQuantityType.quantityType(forIdentifier: .oxygenSaturation)
-        // Sleep (all stages share the sleepAnalysis category type)
-        case "sleep_session", "sleep_asleep", "sleep_awake", "sleep_rem", "sleep_deep", "sleep_core":
-            return HKCategoryType.categoryType(forIdentifier: .sleepAnalysis)
-        // Workouts & Mindfulness
-        case "mindful_minutes": return HKCategoryType.categoryType(forIdentifier: .mindfulSession)
-        case "workout": return HKObjectType.workoutType()
-        // Body Measurements
-        case "body_mass": return HKQuantityType.quantityType(forIdentifier: .bodyMass)
-        case "body_mass_index": return HKQuantityType.quantityType(forIdentifier: .bodyMassIndex)
-        case "body_fat_percentage": return HKQuantityType.quantityType(forIdentifier: .bodyFatPercentage)
-        case "lean_body_mass": return HKQuantityType.quantityType(forIdentifier: .leanBodyMass)
-        case "height": return HKQuantityType.quantityType(forIdentifier: .height)
-        case "waist_circumference": return HKQuantityType.quantityType(forIdentifier: .waistCircumference)
-        // Nutrition
-        case "dietary_energy": return HKQuantityType.quantityType(forIdentifier: .dietaryEnergyConsumed)
-        case "dietary_protein": return HKQuantityType.quantityType(forIdentifier: .dietaryProtein)
-        case "dietary_carbs": return HKQuantityType.quantityType(forIdentifier: .dietaryCarbohydrates)
-        case "dietary_fat": return HKQuantityType.quantityType(forIdentifier: .dietaryFatTotal)
-        case "dietary_fiber": return HKQuantityType.quantityType(forIdentifier: .dietaryFiber)
-        case "dietary_sugar": return HKQuantityType.quantityType(forIdentifier: .dietarySugar)
-        case "dietary_water": return HKQuantityType.quantityType(forIdentifier: .dietaryWater)
-        case "dietary_caffeine": return HKQuantityType.quantityType(forIdentifier: .dietaryCaffeine)
-        // Vitals
-        case "blood_pressure_systolic": return HKQuantityType.quantityType(forIdentifier: .bloodPressureSystolic)
-        case "blood_pressure_diastolic": return HKQuantityType.quantityType(forIdentifier: .bloodPressureDiastolic)
-        case "blood_glucose": return HKQuantityType.quantityType(forIdentifier: .bloodGlucose)
-        case "body_temperature": return HKQuantityType.quantityType(forIdentifier: .bodyTemperature)
-        // Mobility
-        case "walking_speed": return HKQuantityType.quantityType(forIdentifier: .walkingSpeed)
-        case "walking_step_length": return HKQuantityType.quantityType(forIdentifier: .walkingStepLength)
-        case "walking_asymmetry": return HKQuantityType.quantityType(forIdentifier: .walkingAsymmetryPercentage)
-        default: return nil
-        }
-    }
-    
     // MARK: - Debug
 
     var queueTelemetry: OfflineSyncQueue.QueueTelemetry {

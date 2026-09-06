@@ -2,171 +2,209 @@
 
 import { cn } from "@/lib/utils";
 
-import Link from "next/link";
-import { useState, useRef, useCallback, useEffect } from "react";
-import { useRouter } from "next/navigation";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { startTransition, useState, useEffect } from "react";
 import { MainMenu } from "./main-menu";
-import { TeamDropdown } from "./team-dropdown";
+import { SidebarAccountMenu } from "./sidebar-account-menu";
 import { useSidebarMode } from "@/contexts/SidebarModeContext";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { PanelLeft } from "lucide-react";
+import { openDesktopSettingsWindow, type DesktopSettingsView } from '@/lib/native-gateway';
+import { SidebarShell, ToolbarButton } from "@/components/ui/ritual-system";
+import { DesktopUpdateControl } from '@/components/desktop-update-control';
+import { CreateMenu } from '@/components/create-menu';
+import CommandPalette from '@/components/command-palette';
 
 const COLLAPSED_WIDTH = 76;
-const EXPANDED_WIDTH = 202;
+const EXPANDED_WIDTH = 256;
 
-function SidebarChromeToggleIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      className={className}
-      aria-hidden="true"
-    >
-      <g fill="none" stroke="currentColor" strokeWidth="2">
-        <rect width="20" height="18" x="2" y="3" rx="2" strokeLinecap="round" strokeLinejoin="round" />
-        <path d="M9 3v18" />
-      </g>
-    </svg>
-  );
+const CodiconArrowLeft = (props: React.SVGProps<SVGSVGElement>) => (
+  <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" {...props}>
+    <path d="M13.5 8.00023H3.70701L7.85301 3.85423C8.04801 3.65923 8.04801 3.34223 7.85301 3.14723C7.65801 2.95223 7.34101 2.95223 7.14601 3.14723L2.14601 8.14723C1.95101 8.34223 1.95101 8.65923 2.14601 8.85423L7.14601 13.8542C7.24401 13.9522 7.37201 14.0002 7.50001 14.0002C7.62801 14.0002 7.75601 13.9512 7.85401 13.8542C8.04901 13.6592 8.04901 13.3422 7.85401 13.1472L3.70801 9.00123H13.501C13.777 9.00123 14.001 8.77723 14.001 8.50123C14.001 8.22523 13.777 8.00123 13.501 8.00123L13.5 8.00023Z" />
+  </svg>
+);
+
+const CodiconArrowRight = (props: React.SVGProps<SVGSVGElement>) => (
+  <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" {...props}>
+    <path d="M13.854 8.14576L8.854 3.14576C8.659 2.95076 8.342 2.95076 8.147 3.14576C7.952 3.34076 7.952 3.65776 8.147 3.85276L12.293 7.99876H2.5C2.224 7.99876 2 8.22276 2 8.49876C2 8.77476 2.224 8.99876 2.5 8.99876H12.293L8.147 13.1448C7.952 13.3398 7.952 13.6568 8.147 13.8518C8.245 13.9498 8.373 13.9978 8.501 13.9978C8.629 13.9978 8.757 13.9488 8.855 13.8518L13.855 8.85176C14.05 8.65676 14.05 8.33976 13.855 8.14476L13.854 8.14576Z" />
+  </svg>
+);
+
+function isDesktopSettingsView(value: string | null): value is DesktopSettingsView {
+  return value === 'account'
+    || value === 'sounds'
+    || value === 'privacy'
+    || value === 'computer-tracking'
+    || value === 'place-tagging'
+    || value === 'apple-health';
 }
 
-export function Sidebar() {
-  const router = useRouter();
+export function Sidebar({
+  commandPaletteInitialOpen = false,
+}: {
+  commandPaletteInitialOpen?: boolean;
+}) {
   const { mode, setMode } = useSidebarMode();
-  const [isHovered, setIsHovered] = useState(false);
-  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
 
-  const handleMouseEnter = useCallback(() => {
-    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
-    hoverTimerRef.current = setTimeout(() => setIsHovered(true), 50);
-  }, []);
+  const isHoverMode = mode === "hover";
+  const isExpanded = mode === "expanded" || isHoverMode;
+  const width = mode === "expanded" ? EXPANDED_WIDTH : COLLAPSED_WIDTH;
+  const navTopPadding = isExpanded ? 74 : 112;
+  const sidebarToggleLabel = isExpanded ? "Collapse sidebar" : "Expand sidebar";
 
-  const handleMouseLeave = useCallback(() => {
-    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
-    hoverTimerRef.current = setTimeout(() => setIsHovered(false), 100);
-  }, []);
-
-  // Determine visual expansion state based on mode
-  const isExpanded =
-    mode === "expanded" ? true : mode === "hover" ? isHovered : false;
-  const showExpandedChrome = mode === "expanded";
-  const showSidebarLogo = mode !== "expanded";
-
-  // Only attach hover handlers in hover mode
-  const hoverProps =
-    mode === "hover"
-      ? { onMouseEnter: handleMouseEnter, onMouseLeave: handleMouseLeave }
-      : {};
-
-  const width = isExpanded ? EXPANDED_WIDTH : COLLAPSED_WIDTH;
-  const headerWidth = showExpandedChrome ? EXPANDED_WIDTH : COLLAPSED_WIDTH;
-  const headerHeight = showExpandedChrome ? 52 : 80;
-  const navTopPadding = showExpandedChrome ? 78 : 84;
-
-  const handleChromeToggle = useCallback(() => {
-    setIsHovered(false);
-    setMode(mode === "expanded" ? "compact" : "expanded");
-  }, [mode, setMode]);
+  const handleChromeToggle = () => {
+    setMode(isExpanded ? "compact" : "expanded");
+  };
 
   useEffect(() => {
     if (typeof document === 'undefined') return;
+    if (mode === "hover") return;
     document.documentElement.style.setProperty('--ritual-sidebar-current-width', `${width}px`);
 
     return () => {
       document.documentElement.style.setProperty('--ritual-sidebar-current-width', `${COLLAPSED_WIDTH}px`);
     };
-  }, [width]);
+  }, [mode, width]);
+
+  useEffect(() => {
+    const view = searchParams.get('openSettings');
+    if (!isDesktopSettingsView(view)) return;
+
+    void openDesktopSettingsWindow(view).catch((error) => {
+      console.error('Failed to open native settings window:', error);
+    });
+    startTransition(() => setIsAccountMenuOpen(false));
+
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete('openSettings');
+    const qs = params.toString();
+    router.replace(qs ? `${pathname || ''}?${qs}` : pathname || '/');
+  }, [searchParams, pathname, router]);
+
+  const handleSettingsClick = async () => {
+    setIsAccountMenuOpen(false);
+    try {
+      await openDesktopSettingsWindow('account');
+    } catch (error) {
+      console.error('Failed to open native settings window:', error);
+    }
+  };
 
   return (
-    <aside
-      className={cn(
-        "sidebar-vibrancy relative h-screen flex-shrink-0 flex-col justify-between pb-4 items-stretch overflow-hidden hidden md:flex",
-      )}
-      style={{
-        width,
-        transition: "width 200ms cubic-bezier(0.4, 0, 0.2, 1)",
-      }}
-      {...hoverProps}
+    <SidebarShell
+      data-mode={mode}
+      data-account-open={isAccountMenuOpen ? "true" : undefined}
+      style={
+        isHoverMode
+          ? undefined
+          : {
+              width,
+              transition: "width 200ms cubic-bezier(0.4, 0, 0.2, 1)",
+            }
+      }
     >
-      {/* Logo Header — keep a taller reserved band so the logo sits cleanly
-          below the macOS traffic lights without overlap. */}
       <div
+        aria-hidden
         data-tauri-drag-region
-        className="sidebar-header tauri-drag-region absolute top-0 left-0 z-[2] flex items-start"
-        style={{ width: headerWidth, height: headerHeight }}
-      >
-        {showExpandedChrome ? (
-          <div className="no-drag absolute left-[82px] top-[3px] z-10 flex items-center">
-            <button
-              type="button"
-              onMouseDown={(event) => event.stopPropagation()}
-              onClick={(event) => {
-                event.stopPropagation();
-                handleChromeToggle();
-              }}
-              className="mr-[28px] flex h-[20px] w-[20px] items-center justify-center rounded-[4px] text-[rgb(143,146,151)] transition-colors hover:text-[#666a70]"
-              aria-label={mode === "expanded" ? "Collapse sidebar" : "Expand sidebar"}
-              title={mode === "expanded" ? "Collapse sidebar" : "Expand sidebar"}
-            >
-              <SidebarChromeToggleIcon className="h-[16px] w-[16px]" />
-            </button>
-            <div className="flex items-center gap-[10px]">
-              <button
-                type="button"
-                onMouseDown={(event) => event.stopPropagation()}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  if (window.history.length > 1) {
-                    router.back();
-                  }
-                }}
-                className="flex h-[18px] w-[18px] items-center justify-center rounded-[4px] text-[rgb(146,149,154)] transition-colors hover:text-[#56595f]"
-                aria-label="Go back"
-                title="Go back"
-              >
-                <ChevronLeft className="h-[14px] w-[14px] stroke-[2.15]" />
-              </button>
-              <button
-                type="button"
-                onMouseDown={(event) => event.stopPropagation()}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  router.forward();
-                }}
-                className="flex h-[18px] w-[18px] items-center justify-center rounded-[4px] text-[rgb(146,149,154)] transition-colors hover:text-[#56595f]"
-                aria-label="Go forward"
-                title="Go forward"
-              >
-                <ChevronRight className="h-[14px] w-[14px] stroke-[2.15]" />
-              </button>
-            </div>
-          </div>
-        ) : null}
-        {showSidebarLogo ? (
-          <Link href="/" className="no-drag flex h-full w-full items-start justify-start pl-[24px] pt-[22px] transition-none">
-            <img
-              src="/images/eclipse.svg"
-              alt="Ritual Logo"
-              className="h-[24px] w-[24px] flex-shrink-0 opacity-[0.74]"
-            />
-          </Link>
-        ) : (
-          <div className="no-drag relative h-full w-full" />
+        className="tauri-drag-region absolute left-2 right-2 top-0 z-0 h-12"
+      />
+      <div
+        aria-hidden
+        data-tauri-drag-region
+        className="tauri-drag-region absolute left-2 right-2 top-12 z-0 h-[30px]"
+      />
+      <div
+        className={cn(
+          "no-drag absolute z-20 flex items-center",
+          isExpanded ? "left-[81px] top-[2px]" : "left-[18px] top-[70px]",
         )}
+      >
+        <ToolbarButton
+          type="button"
+          onMouseDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation();
+            handleChromeToggle();
+          }}
+          className="app-toolbar-icon-button"
+          aria-label={sidebarToggleLabel}
+          title={sidebarToggleLabel}
+        >
+          <PanelLeft className="h-[18px] w-[18px] stroke-[2.05]" />
+        </ToolbarButton>
       </div>
+      {isExpanded ? (
+        <div className="no-drag absolute right-[70px] top-[2px] z-20 flex items-center gap-0.5">
+          <ToolbarButton
+            type="button"
+            onMouseDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              if (window.history.length > 1) {
+                router.back();
+              }
+            }}
+            className="app-toolbar-icon-button app-toolbar-nav-button"
+            aria-label="Go back"
+            title="Go back"
+          >
+            <CodiconArrowLeft className="h-4 w-[18px]" />
+          </ToolbarButton>
+          <ToolbarButton
+            type="button"
+            onMouseDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              router.forward();
+            }}
+            className="app-toolbar-icon-button app-toolbar-nav-button"
+            aria-label="Go forward"
+            title="Go forward"
+          >
+            <CodiconArrowRight className="h-4 w-[18px]" />
+          </ToolbarButton>
+        </div>
+      ) : null}
+      {isExpanded ? (
+        <div className="no-drag absolute right-[34px] top-[2px] z-30 flex items-center">
+          <CommandPalette
+            className="app-toolbar-icon-button"
+            initialOpen={commandPaletteInitialOpen}
+            density="tight"
+            triggerVariant="icon"
+          />
+        </div>
+      ) : null}
+      {isExpanded ? (
+        <div className="no-drag absolute right-[6px] top-[2px] z-30 flex items-center">
+          <CreateMenu align="start" side="right" triggerClassName="app-toolbar-icon-button ml-0" />
+        </div>
+      ) : null}
 
-      {/* Main Navigation — top padding accounts for the dedicated titlebar lane above the logo. */}
-      <div className="flex flex-col w-full flex-1" style={{ paddingTop: navTopPadding }}>
+      <div className="no-drag flex min-h-0 w-full flex-1 flex-col overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" style={{ paddingTop: navTopPadding }}>
         <MainMenu
           isExpanded={isExpanded}
-          onCloseSidebar={() => setIsHovered(false)}
         />
       </div>
 
-      {/* Bottom: User Avatar */}
-      <div className="flex flex-col items-center w-full gap-2 px-[15px]">
-        <TeamDropdown isExpanded={isExpanded} placement="sidebar" />
+      <div
+        className={cn(
+          'no-drag flex w-full px-[15px]',
+          isExpanded ? 'items-center gap-1.5' : 'flex-col items-stretch',
+        )}
+      >
+        <div className={isExpanded ? 'min-w-0 flex-1' : undefined}>
+          <SidebarAccountMenu
+            isExpanded={isExpanded}
+            onOpenChange={setIsAccountMenuOpen}
+            onOpenSettings={handleSettingsClick}
+          />
+        </div>
+        <DesktopUpdateControl isExpanded={isExpanded} />
       </div>
-    </aside>
+    </SidebarShell>
   );
 }

@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { recordDesktopShellEvent } from "@/lib/desktop-bridge/observability";
-import { isDesktopTauriRuntime } from "@/lib/desktop-bridge/environment";
+import { recordDesktopShellEvent, isDesktopTauriRuntime } from "@/lib/native-gateway";
 
 const DESKTOP_ASSET_RECOVERY_STORAGE_KEY = "ritual:desktop-asset-recovery:v1";
 const DESKTOP_ASSET_RECOVERY_COOLDOWN_MS = 30_000;
@@ -208,11 +207,11 @@ export function useDesktopAssetRecovery(errorLike: unknown, source: string) {
 
   useEffect(() => {
     if (!recoverable) {
-      setMode("none");
+      queueMicrotask(() => setMode("none"));
       return;
     }
 
-    setMode(scheduleDesktopAssetRecoveryReload(errorLike, source));
+    queueMicrotask(() => setMode(scheduleDesktopAssetRecoveryReload(errorLike, source)));
   }, [errorLike, recoverable, source]);
 
   return {

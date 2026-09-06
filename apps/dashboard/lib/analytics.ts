@@ -6,6 +6,8 @@
  */
 
 import { useOpenPanel } from '@openpanel/nextjs';
+import { canSendToCloud, redactAnalyticsProperties } from '@ritual/shared-contracts';
+import { readPrivacySettings } from '@/lib/privacy/privacy-settings';
 
 // ============================================================================
 // Event Names - Keep these consistent across the app
@@ -87,79 +89,92 @@ export interface AIChatEventProps {
  */
 export function useAnalytics() {
   const op = useOpenPanel();
+  const trackSafely = (event: string, properties?: Record<string, unknown>) => {
+    const settings = readPrivacySettings();
+    const decision = canSendToCloud({
+      mode: settings.mode,
+      consents: settings.consents,
+      dataClass: 'product_telemetry',
+      destination: 'openpanel',
+      purpose: 'product_telemetry',
+    });
+    if (!decision.allowed) return;
+    op.track(event, redactAnalyticsProperties(properties));
+  };
 
   return {
     // Generic track function for custom events
     track: (event: string, properties?: Record<string, unknown>) => {
-      op.track(event, properties);
+      trackSafely(event, properties);
     },
 
     // Habit Events
     trackHabitCreated: (props: HabitEventProps) => {
-      op.track(ANALYTICS_EVENTS.HABIT_CREATED, { ...props });
+      trackSafely(ANALYTICS_EVENTS.HABIT_CREATED, { ...props });
     },
     trackHabitUpdated: (props: HabitEventProps) => {
-      op.track(ANALYTICS_EVENTS.HABIT_UPDATED, { ...props });
+      trackSafely(ANALYTICS_EVENTS.HABIT_UPDATED, { ...props });
     },
     trackHabitDeleted: (props: HabitEventProps) => {
-      op.track(ANALYTICS_EVENTS.HABIT_DELETED, { ...props });
+      trackSafely(ANALYTICS_EVENTS.HABIT_DELETED, { ...props });
     },
     trackHabitLogged: (props: HabitEventProps & { value?: number; unit?: string; source?: string }) => {
-      op.track(ANALYTICS_EVENTS.HABIT_LOGGED, { ...props });
+      trackSafely(ANALYTICS_EVENTS.HABIT_LOGGED, { ...props });
     },
     trackHabitLogDeleted: (props: { logId: string; habitName: string }) => {
-      op.track(ANALYTICS_EVENTS.HABIT_LOG_DELETED, { ...props });
+      trackSafely(ANALYTICS_EVENTS.HABIT_LOG_DELETED, { ...props });
     },
 
     // Timer Events
     trackTimerStarted: (props: TimerEventProps) => {
-      op.track(ANALYTICS_EVENTS.TIMER_STARTED, { ...props });
+      trackSafely(ANALYTICS_EVENTS.TIMER_STARTED, { ...props });
     },
     trackTimerPaused: (props: TimerEventProps) => {
-      op.track(ANALYTICS_EVENTS.TIMER_PAUSED, { ...props });
+      trackSafely(ANALYTICS_EVENTS.TIMER_PAUSED, { ...props });
     },
     trackTimerCompleted: (props: TimerEventProps) => {
-      op.track(ANALYTICS_EVENTS.TIMER_COMPLETED, { ...props });
+      trackSafely(ANALYTICS_EVENTS.TIMER_COMPLETED, { ...props });
     },
     trackTimerCancelled: (props: TimerEventProps) => {
-      op.track(ANALYTICS_EVENTS.TIMER_CANCELLED, { ...props });
+      trackSafely(ANALYTICS_EVENTS.TIMER_CANCELLED, { ...props });
     },
 
     // Integration Events
     trackIntegrationConnected: (props: IntegrationEventProps) => {
-      op.track(ANALYTICS_EVENTS.INTEGRATION_CONNECTED, { ...props });
+      trackSafely(ANALYTICS_EVENTS.INTEGRATION_CONNECTED, { ...props });
     },
     trackIntegrationDisconnected: (props: IntegrationEventProps) => {
-      op.track(ANALYTICS_EVENTS.INTEGRATION_DISCONNECTED, { ...props });
+      trackSafely(ANALYTICS_EVENTS.INTEGRATION_DISCONNECTED, { ...props });
     },
     trackIntegrationSynced: (props: IntegrationEventProps & { recordsCount?: number }) => {
-      op.track(ANALYTICS_EVENTS.INTEGRATION_SYNCED, { ...props });
+      trackSafely(ANALYTICS_EVENTS.INTEGRATION_SYNCED, { ...props });
     },
 
     // AI Chat Events
     trackAIChatMessageSent: (props: AIChatEventProps) => {
-      op.track(ANALYTICS_EVENTS.AI_CHAT_MESSAGE_SENT, { ...props });
+      trackSafely(ANALYTICS_EVENTS.AI_CHAT_MESSAGE_SENT, { ...props });
     },
     trackAIChatSuggestionAccepted: (props: AIChatEventProps) => {
-      op.track(ANALYTICS_EVENTS.AI_CHAT_HABIT_SUGGESTION_ACCEPTED, { ...props });
+      trackSafely(ANALYTICS_EVENTS.AI_CHAT_HABIT_SUGGESTION_ACCEPTED, { ...props });
     },
 
     // Navigation Events
     trackQuickActionsOpened: () => {
-      op.track(ANALYTICS_EVENTS.QUICK_ACTIONS_OPENED);
+      trackSafely(ANALYTICS_EVENTS.QUICK_ACTIONS_OPENED);
     },
 
     // User Events
     trackOnboardingCompleted: (props: { habitsSelected: number }) => {
-      op.track(ANALYTICS_EVENTS.ONBOARDING_COMPLETED, { ...props });
+      trackSafely(ANALYTICS_EVENTS.ONBOARDING_COMPLETED, { ...props });
     },
     trackSettingsUpdated: (props: { setting: string; value?: string }) => {
-      op.track(ANALYTICS_EVENTS.SETTINGS_UPDATED, { ...props });
+      trackSafely(ANALYTICS_EVENTS.SETTINGS_UPDATED, { ...props });
     },
 
     // User profile updates
     setUserProperties: (properties: Record<string, unknown>) => {
-      op.setGlobalProperties(properties);
+      const safeProperties = redactAnalyticsProperties(properties);
+      if (safeProperties) op.setGlobalProperties(safeProperties);
     },
   };
 }
@@ -169,4 +184,3 @@ export function useAnalytics() {
 // ============================================================================
 
 export { OpenPanel } from '@openpanel/nextjs';
-

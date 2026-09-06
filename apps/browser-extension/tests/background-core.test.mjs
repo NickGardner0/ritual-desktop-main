@@ -2,9 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  acknowledgeOutboxHead,
+  createSerializedExecutor,
+  enqueueOutboxEvent,
   getServerCandidates,
+  hydrateOutboxState,
   isSameHeartbeat,
-  replayQueuedEvents,
   shouldSendTabUpdateHeartbeat,
 } from '../background-core.js';
 
@@ -53,39 +56,58 @@ test('isSameHeartbeat ignores queue metadata and compares tracking fields', () =
   );
 });
 
-test('replayQueuedEvents preserves unsent tail when send fails mid-queue', async () => {
-  const queue = [
-    { id: 'e1', timestamp_ms: 1 },
-    { id: 'e2', timestamp_ms: 2 },
-    { id: 'e3', timestamp_ms: 3 },
-  ];
-
-  const sent = [];
-  const result = await replayQueuedEvents(queue, async (event) => {
-    sent.push(event.id);
-    return event.id !== 'e2';
+test('hydrateOutboxState migrates the legacy queue and preserves versioned retry state', () => {
+  assert.deepEqual(hydrateOutboxState(null, [{ id: 'legacy' }]), {
+    version: 1,
+    pending: [{ id: 'legacy' }],
+    reconnectAttempts: 0,
+    retryAt: 0,
   });
 
-  assert.deepEqual(sent, ['e1', 'e2']);
-  assert.equal(result.replayedCount, 1);
-  assert.equal(result.failedAt, 1);
   assert.deepEqual(
-    result.remaining.map((e) => e.id),
-    ['e2', 'e3']
-  );
-  assert.deepEqual(
-    result.remaining.map((e) => e.timestamp_ms),
-    [2, 3]
+    hydrateOutboxState({
+      version: 1,
+      pending: [{ id: 'current' }],
+      reconnectAttempts: 3,
+      retryAt: 400,
+    }, [{ id: 'legacy' }]),
+    {
+      version: 1,
+      pending: [{ id: 'current' }],
+      reconnectAttempts: 3,
+      retryAt: 400,
+    }
   );
 });
 
-test('replayQueuedEvents clears queue when all events send', async () => {
-  const queue = [{ id: 'e1' }, { id: 'e2' }];
-  const result = await replayQueuedEvents(queue, async () => true);
+test('serialized outbox commit cannot overwrite an enqueue that arrives during replay', async () => {
+  let stored = hydrateOutboxState(null, [{ id: 'e1', url: 'https://one.test' }]);
+  const serialize = createSerializedExecutor();
+  let releaseSend;
+  const sendBlocked = new Promise((resolve) => { releaseSend = resolve; });
 
-  assert.equal(result.replayedCount, 2);
-  assert.equal(result.failedAt, null);
-  assert.deepEqual(result.remaining, []);
+  const replay = serialize(async () => {
+    const snapshot = stored;
+    await sendBlocked;
+    stored = acknowledgeOutboxHead(snapshot);
+  });
+  const enqueue = serialize(async () => {
+    stored = enqueueOutboxEvent(stored, { id: 'e2', url: 'https://two.test' }, 50, 2);
+  });
+
+  releaseSend();
+  await Promise.all([replay, enqueue]);
+  assert.deepEqual(stored.pending.map((event) => event.id), ['e2']);
+});
+
+test('enqueueOutboxEvent de-dupes adjacent heartbeats and retains the newest bounded set', () => {
+  let state = hydrateOutboxState(null);
+  state = enqueueOutboxEvent(state, { id: 'a', url: 'https://one.test' }, 2, 1);
+  state = enqueueOutboxEvent(state, { id: 'duplicate', url: 'https://one.test' }, 2, 2);
+  state = enqueueOutboxEvent(state, { id: 'b', url: 'https://two.test' }, 2, 3);
+  state = enqueueOutboxEvent(state, { id: 'c', url: 'https://three.test' }, 2, 4);
+
+  assert.deepEqual(state.pending.map((event) => event.id), ['b', 'c']);
 });
 
 test('shouldSendTabUpdateHeartbeat only triggers for active-tab churn signals', () => {

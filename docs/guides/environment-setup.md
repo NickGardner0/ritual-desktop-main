@@ -113,19 +113,11 @@ GROQ_API_KEY=gsk_xxxxxxxxxxxxx
 
 ### Internal API Key
 
-For secure server-to-server communication (e.g., Trigger.dev scheduled jobs):
+For secure server-to-server communication (FastAPI scheduler → Next workflow execute):
 
 ```bash
 # Generate with: openssl rand -base64 32
 INTERNAL_API_KEY=your-secure-random-string
-```
-
-### Trigger.dev
-
-For scheduled background jobs:
-
-```bash
-TRIGGER_SECRET_KEY=tr_xxxxxxxxxxxxx
 ```
 
 ---
@@ -187,9 +179,6 @@ GROQ_API_KEY=
 
 # Server-to-server auth
 INTERNAL_API_KEY=
-
-# Background Jobs
-TRIGGER_SECRET_KEY=
 ```
 
 ---

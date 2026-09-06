@@ -2,8 +2,14 @@
 
 import { useAuth, useUser } from "@clerk/nextjs";
 import { useQuery } from "@tanstack/react-query";
-import { getHeartRateRange } from "@/lib/api/biometrics";
-import type { HeartRateRangeParams } from "@/lib/types/biometrics";
+import { apiOperationWithAuth } from "@/lib/api/client";
+
+type HeartRateRangeParams = {
+  start: string;
+  end: string;
+  resolution?: "raw" | "1m";
+  sourceType?: string;
+};
 
 export function useHeartRateRange(params: HeartRateRangeParams, enabled = true) {
   const { user } = useUser();
@@ -11,15 +17,21 @@ export function useHeartRateRange(params: HeartRateRangeParams, enabled = true) 
 
   return useQuery({
     queryKey: ["heart-rate-range", user?.id, params.start, params.end, params.resolution, params.sourceType],
-    queryFn: async () => {
-      const token = await getToken();
-      if (!token) {
-        throw new Error("Missing auth token");
-      }
-      return getHeartRateRange(token, params);
-    },
+    queryFn: () =>
+      apiOperationWithAuth(
+        "get_heart_rate_range_api_v1_biometrics_heart_rate_range_get",
+        getToken,
+        {
+          query: {
+            start: params.start,
+            end: params.end,
+            resolution: params.resolution ?? "1m",
+            source_type: params.sourceType,
+          },
+        },
+        user?.id,
+      ),
     enabled: !!user?.id && enabled,
     staleTime: 15_000,
   });
 }
-

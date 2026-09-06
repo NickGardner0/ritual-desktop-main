@@ -4,8 +4,8 @@
   "type": "module",
   "scripts": {
     "watcher:build": "cd src-tauri/bin/ritual-watcher && ./build.sh",
-    "shell:dev": "node ../../node_modules/vite/bin/vite.js --host 127.0.0.1 --port 1420",
-    "shell:build": "node ../../node_modules/vite/bin/vite.js build",
+    "shell:dev": "npm --prefix ../.. run --workspace @ritual/chat-runtime build && npm --prefix ../.. run --workspace @ritual/agent build && npm --prefix ../desktop-ui run dev",
+    "shell:build": "npm --prefix ../.. run --workspace @ritual/chat-runtime build && npm --prefix ../.. run --workspace @ritual/agent build && mkdir -p src-tauri/resources/agent && cp ../../packages/agent/dist/sidecar.bundle.js src-tauri/resources/agent/sidecar.mjs && npm --prefix ../desktop-ui run build && node ../../scripts/verify-desktop-ui-bundle.mjs",
     "tauri": "tauri",
     "dev": "tauri dev",
     "build": "npm run watcher:build && tauri build"

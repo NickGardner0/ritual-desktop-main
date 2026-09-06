@@ -14,9 +14,10 @@
 
 import * as React from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { useUser } from '@clerk/nextjs';
+import { useUser } from '@/lib/desktop-session';
+import { usePathname, useSearchParams } from '@/lib/app-navigation';
 
-// Import types
+import type { CreateHabitInput, HabitRecord } from '@ritual/shared-contracts';
 import type { Habit, HabitLog } from '@/contexts/habits-context.types';
 import { getHabitLogLocalDate as resolveHabitLogLocalDate } from '@/lib/habit-log-time';
 
@@ -27,6 +28,7 @@ import {
   useLogHabitMutation,
   useCreateHabitMutation,
   useDeleteHabitMutation,
+  useUpdateHabitMutation,
   habitKeys,
   habitLogKeys,
 } from '@/hooks/use-habits-query';
@@ -50,7 +52,8 @@ export interface HabitsContextType {
   fetchHabits: () => Promise<void>;
   fetchHabitLogs: () => Promise<void>;
   logHabit: (habitLog: Omit<HabitLog, 'id'>) => Promise<void>;
-  createHabit: (habitData: any) => Promise<any>;
+  createHabit: (habitData: CreateHabitInput) => Promise<HabitRecord>;
+  updateHabit: (habitId: string, updates: Partial<Habit>) => Promise<Habit>;
   deleteHabit: (habitId: string) => Promise<void>;
   
   // Computed values
@@ -78,7 +81,12 @@ export const HabitsContext = React.createContext<HabitsContextType>({
   fetchHabits: async () => {},
   fetchHabitLogs: async () => {},
   logHabit: async () => {},
-  createHabit: async () => {},
+  createHabit: async (): Promise<HabitRecord> => {
+    throw new Error('HabitsContext not initialized');
+  },
+  updateHabit: async (): Promise<Habit> => {
+    throw new Error('HabitsContext not initialized');
+  },
   deleteHabit: async () => {},
   totalMinutesToday: 0,
   completedHabitsToday: 0,
@@ -103,15 +111,6 @@ function shouldAutoLoadHabitLogs(pathname: string | null, viewParam: string | nu
   return true;
 }
 
-function shouldAutoLoadHabitLogsForCurrentLocation(): boolean {
-  if (typeof window === 'undefined') {
-    return false;
-  }
-
-  const viewParam = new URLSearchParams(window.location.search).get('view') || 'overview';
-  return shouldAutoLoadHabitLogs(window.location.pathname, viewParam);
-}
-
 // Create a provider component using React Query hooks
 export function HabitsProvider({ children }: { children: React.ReactNode }) {
   if (process.env.NODE_ENV !== 'production') {
@@ -120,41 +119,19 @@ export function HabitsProvider({ children }: { children: React.ReactNode }) {
   
   const { user } = useUser();
   const queryClient = useQueryClient();
-  const [shouldLoadHabitLogs, setShouldLoadHabitLogs] = React.useState(
-    shouldAutoLoadHabitLogsForCurrentLocation,
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const shouldLoadHabitLogs = shouldAutoLoadHabitLogs(
+    pathname,
+    searchParams.get('view') || 'overview',
   );
-  React.useEffect(() => {
-    const updateFromLocation = () => {
-      setShouldLoadHabitLogs(shouldAutoLoadHabitLogsForCurrentLocation());
-    };
-
-    const originalPushState = window.history.pushState;
-    const originalReplaceState = window.history.replaceState;
-    window.history.pushState = function pushState(...args) {
-      const result = originalPushState.apply(this, args);
-      updateFromLocation();
-      return result;
-    };
-    window.history.replaceState = function replaceState(...args) {
-      const result = originalReplaceState.apply(this, args);
-      updateFromLocation();
-      return result;
-    };
-
-    updateFromLocation();
-    window.addEventListener('popstate', updateFromLocation);
-    return () => {
-      window.history.pushState = originalPushState;
-      window.history.replaceState = originalReplaceState;
-      window.removeEventListener('popstate', updateFromLocation);
-    };
-  }, []);
   
   // Use React Query hooks
   const habitsQuery = useHabitsQuery();
   const logsQuery = useHabitLogsQuery({ enabled: shouldLoadHabitLogs });
   const logHabitMutation = useLogHabitMutation();
   const createHabitMutation = useCreateHabitMutation();
+  const updateHabitMutation = useUpdateHabitMutation();
   const deleteHabitMutation = useDeleteHabitMutation();
   
   // Legacy state for backward compatibility
@@ -185,8 +162,8 @@ export function HabitsProvider({ children }: { children: React.ReactNode }) {
   // Extract data from React Query
   const habits = habitsQuery.data || [];
   const habitLogs = logsQuery.data || [];
-  const isLoading = habitsQuery.isLoading;
-  const isLoadingLogs = logsQuery.isLoading;
+  const isLoading = habitsQuery.isLoading && habits.length === 0;
+  const isLoadingLogs = logsQuery.isLoading && habitLogs.length === 0;
   const error = habitsQuery.error as Error | null;
   const habitsById = React.useMemo(() => {
     const next = new Map<string, Habit>();
@@ -202,33 +179,39 @@ export function HabitsProvider({ children }: { children: React.ReactNode }) {
   const fetchHabits = React.useCallback(async () => {
     if (process.env.NODE_ENV !== 'production') { console.log('🔄 [Compat] fetchHabits called - using React Query refetch'); }
     await habitsQuery.refetch();
-  }, [habitsQuery]);
+  }, [habitsQuery.refetch]);
   
   const fetchHabitLogs = React.useCallback(async () => {
     if (process.env.NODE_ENV !== 'production') { console.log('🔄 [Compat] fetchHabitLogs called - using React Query refetch'); }
     await logsQuery.refetch();
-  }, [logsQuery]);
+  }, [logsQuery.refetch]);
   
   const logHabit = React.useCallback(async (habitLog: Omit<HabitLog, 'id'>) => {
     if (process.env.NODE_ENV !== 'production') { console.log('📝 [Compat] logHabit called - using React Query mutation'); }
     await logHabitMutation.mutateAsync(habitLog);
-  }, [logHabitMutation]);
+  }, [logHabitMutation.mutateAsync]);
   
-  const createHabit = React.useCallback(async (habitData: any) => {
+  const createHabit = React.useCallback(async (habitData: CreateHabitInput): Promise<HabitRecord> => {
     if (process.env.NODE_ENV !== 'production') { console.log('➕ [Compat] createHabit called - using React Query mutation'); }
     return await createHabitMutation.mutateAsync(habitData);
-  }, [createHabitMutation]);
+  }, [createHabitMutation.mutateAsync]);
+
+  const updateHabit = React.useCallback(async (
+    habitId: string,
+    updates: Partial<Habit>,
+  ): Promise<Habit> => {
+    return await updateHabitMutation.mutateAsync({ habitId, updates }) as Habit;
+  }, [updateHabitMutation.mutateAsync]);
   
   const deleteHabit = React.useCallback(async (habitId: string) => {
     if (process.env.NODE_ENV !== 'production') { console.log('🗑️ [Compat] deleteHabit called - using React Query mutation'); }
-    // Find the habit to get its name and category for analytics
     const habit = habits.find(h => h.id === habitId);
     await deleteHabitMutation.mutateAsync({ 
       habitId, 
       habitName: habit?.name, 
       category: habit?.category 
     });
-  }, [deleteHabitMutation, habits]);
+  }, [deleteHabitMutation.mutateAsync, habits]);
   
   const fetchHabitsFromApi = fetchHabits; // Alias for backward compatibility
   
@@ -294,31 +277,21 @@ export function HabitsProvider({ children }: { children: React.ReactNode }) {
     setCustomHabits(prev => [...prev, habit]);
   }, []);
   
-  const value: HabitsContextType = {
-    // Data
+  const value = React.useMemo<HabitsContextType>(() => ({
     habits,
     habitLogs,
-    
-    // Loading states
     isLoading,
     isLoadingLogs: shouldLoadHabitLogs && isLoadingLogs,
-    
-    // Error
     error,
-    
-    // Actions
     fetchHabits,
     fetchHabitLogs,
     logHabit,
     createHabit,
+    updateHabit,
     deleteHabit,
-    
-    // Computed values
     totalMinutesToday,
     completedHabitsToday,
     currentStreak,
-    
-    // Legacy support
     selectedHabits,
     setSelectedHabits,
     customHabits,
@@ -326,7 +299,28 @@ export function HabitsProvider({ children }: { children: React.ReactNode }) {
     habitOrder,
     setHabitOrder,
     fetchHabitsFromApi,
-  };
+  }), [
+    habits,
+    habitLogs,
+    isLoading,
+    shouldLoadHabitLogs,
+    isLoadingLogs,
+    error,
+    fetchHabits,
+    fetchHabitLogs,
+    logHabit,
+    createHabit,
+    updateHabit,
+    deleteHabit,
+    totalMinutesToday,
+    completedHabitsToday,
+    currentStreak,
+    selectedHabits,
+    customHabits,
+    addCustomHabit,
+    habitOrder,
+    fetchHabitsFromApi,
+  ]);
   
   return (
     <HabitsContext.Provider value={value}>

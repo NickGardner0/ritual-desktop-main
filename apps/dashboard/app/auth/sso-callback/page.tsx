@@ -1,194 +1,333 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { useUser, useAuth } from '@clerk/nextjs'
+import { useAuth, useClerk, useUser } from '@clerk/nextjs'
+import { Button } from '@ritual/ui/button'
 
+import { clearSetupSubstep } from '@/components/onboarding/setup-wizard'
 import { BrailleSpinner } from '@/components/ui/braille-spinner'
 import {
-  cameFromWelcomeFlow,
   clearFromWelcomeFlow,
   clearSignUpIntent,
-  getPostOnboardingRoute,
-  hasCompletedOnboarding,
   hasPendingSignUpIntent,
   markDeviceAuthenticated,
-  markOnboardingCompleted,
 } from '@/lib/onboarding-flow'
+import {
+  onboardingRouteForStep,
+  resolveOnboardingStep,
+  resolveSsoRedirectRoute,
+} from '@/lib/activation-flow.mjs'
+import { storeBootstrapHandoff } from '@/lib/bootstrap-handoff'
+import { getDesktopCapabilities } from '@/lib/desktop-capabilities'
+import { initializeDesktopVault } from '@/lib/privacy/vault-client'
+import { desktopGetAuthToken, restoreDashboardWindowSize } from '@/lib/native-gateway'
+import { apiOperationWithAuth } from '@/lib/api/client'
+import { BackendClientError } from '@/lib/api/generated/backend-client'
 
-const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
-const DASHBOARD_RETURN_URL_KEY = 'ritual:dashboard-return-url:v1';
-const devLog = (...args: unknown[]) => {
-  if (process.env.NODE_ENV !== 'production') {
-    console.log(...args);
-  }
-};
+const DASHBOARD_RETURN_URL_KEY = 'ritual:dashboard-return-url:v1'
+const ONBOARDING_V3_STEP_KEY = 'ritual:onboarding-v3-step'
+const BOOTSTRAP_TIMEOUT_MS = 30_000
 
-function readDashboardReturnUrl(): string | null {
-  if (typeof window === 'undefined') return null;
-
-  const value = window.sessionStorage.getItem(DASHBOARD_RETURN_URL_KEY);
-  window.sessionStorage.removeItem(DASHBOARD_RETURN_URL_KEY);
-
-  if (!value?.startsWith('/dashboard')) {
-    return null;
-  }
-
-  return value;
+type BootstrapFailure = {
+  code: string
+  message: string
 }
 
-function resolvePostSignInRoute(userId?: string | null): string {
-  return getPostOnboardingRoute(readDashboardReturnUrl() ?? '/dashboard', userId);
+class BootstrapError extends Error {
+  code: string
+
+  constructor(failure: BootstrapFailure) {
+    super(failure.message)
+    this.name = 'BootstrapError'
+    this.code = failure.code
+  }
+}
+
+function readBootstrapFailureFromBody(body: string): BootstrapFailure {
+  const fallback = {
+    code: 'account_setup_failed',
+    message: 'Ritual could not finish creating your account. Please try again.',
+  }
+
+  try {
+    const payload = JSON.parse(body) as {
+      detail?: unknown
+      error?: unknown
+    }
+    let detail = payload.detail
+    if (!detail && typeof payload.error === 'string') {
+      try {
+        detail = (JSON.parse(payload.error) as { detail?: unknown }).detail
+      } catch {
+        detail = null
+      }
+    }
+    if (detail && typeof detail === 'object') {
+      const candidate = detail as { code?: unknown; message?: unknown }
+      return {
+        code: typeof candidate.code === 'string' ? candidate.code : fallback.code,
+        message: typeof candidate.message === 'string' ? candidate.message : fallback.message,
+      }
+    }
+  } catch {
+    // Keep the safe user-facing fallback.
+  }
+
+  return fallback
+}
+
+function readDashboardReturnUrl(): string | null {
+  if (typeof window === 'undefined') return null
+
+  const value = window.sessionStorage.getItem(DASHBOARD_RETURN_URL_KEY)
+  window.sessionStorage.removeItem(DASHBOARD_RETURN_URL_KEY)
+
+  if (!value?.startsWith('/dashboard')) {
+    return null
+  }
+
+  return value
+}
+
+function readPersistedOnboardingStep(): string | null {
+  if (typeof window === 'undefined') return null
+  return window.localStorage.getItem(ONBOARDING_V3_STEP_KEY)
+}
+
+function clearPersistedOnboardingStep(): void {
+  if (typeof window === 'undefined') return
+  window.localStorage.removeItem(ONBOARDING_V3_STEP_KEY)
+}
+
+function readPersistedOnboardingRoute(): string | null {
+  const persistedStep = readPersistedOnboardingStep()
+  if (!persistedStep) {
+    return null
+  }
+
+  return onboardingRouteForStep(resolveOnboardingStep(undefined, persistedStep))
+}
+
+function resolveBootstrapRedirect(nextRoute: unknown, dashboardReturnUrl: string | null): string {
+  const redirectRoute = resolveSsoRedirectRoute(nextRoute, dashboardReturnUrl)
+  if (redirectRoute === '/dashboard' || !redirectRoute.startsWith('/onboarding')) {
+    return redirectRoute
+  }
+
+  const resolvedStep = resolveOnboardingStep(redirectRoute, readPersistedOnboardingStep())
+  return onboardingRouteForStep(resolvedStep)
+}
+
+async function fetchBootstrap(
+  getToken: (opts?: { skipCache?: boolean }) => Promise<string | null>,
+  userId?: string | null,
+) {
+  const controller = new AbortController()
+  const timeoutId = window.setTimeout(() => controller.abort(), BOOTSTRAP_TIMEOUT_MS)
+
+  try {
+    return await apiOperationWithAuth(
+      'get_user_bootstrap_api_user_bootstrap_get',
+      async (opts) => getToken({ skipCache: opts?.skipCache ?? true }),
+      { signal: controller.signal },
+      userId,
+    )
+  } finally {
+    window.clearTimeout(timeoutId)
+  }
+}
+
+async function prepareDashboardRedirect(
+  target: string,
+  shouldRestoreWindowSize: boolean,
+): Promise<void> {
+  if (target.startsWith('/dashboard')) {
+    clearPersistedOnboardingStep()
+    clearSetupSubstep()
+    if (shouldRestoreWindowSize) {
+      await restoreDashboardWindowSize()
+    }
+  }
 }
 
 export default function SSOCallback() {
   const router = useRouter()
   const { user, isLoaded } = useUser()
   const { getToken } = useAuth()
+  const { signOut } = useClerk()
   const [status, setStatus] = useState('Completing sign-in...')
+  const [failure, setFailure] = useState<BootstrapFailure | null>(null)
+  const [retryNonce, setRetryNonce] = useState(0)
+  const bootstrappedUserIdRef = useRef<string | null>(null)
 
   useEffect(() => {
-    if (!isLoaded || !user) {
+    bootstrappedUserIdRef.current = null
+  }, [retryNonce])
+
+  useEffect(() => {
+    const desktop = getDesktopCapabilities().isDesktop
+    if (!desktop && !isLoaded) {
       return
     }
 
-    const checkOnboardingAndRedirect = async () => {
+    if (!desktop && !user) {
+      router.replace('/sign-in')
+      return
+    }
+
+    let cancelled = false
+    const bootstrapAndRedirect = async () => {
       try {
+        setFailure(null)
+        let resolvedUserId = user?.id ?? null
+        let resolvedGetToken = getToken
+        if (desktop) {
+          const token = await getToken({ skipCache: true })
+          const session = await desktopGetAuthToken({ refresh: false })
+          if (!token || !session?.sessionId || !session.userId) {
+            if (!cancelled) router.replace('/sign-in')
+            return
+          }
+          resolvedUserId = session.userId
+          resolvedGetToken = async (opts?: { skipCache?: boolean }) => {
+            const next = await getToken(opts)
+            return next ?? session.token
+          }
+        }
+        if (!resolvedUserId) {
+          if (!cancelled) router.replace('/sign-in')
+          return
+        }
+        if (bootstrappedUserIdRef.current === resolvedUserId) {
+          return
+        }
+        bootstrappedUserIdRef.current = resolvedUserId
+        if (cancelled) return
+
+        const shouldRestoreDashboardWindowSize = hasPendingSignUpIntent()
         markDeviceAuthenticated()
+        clearFromWelcomeFlow()
+        clearSignUpIntent()
 
-        // Check if user came from welcome flow (new user signup)
-        const isFromWelcome = cameFromWelcomeFlow()
-        const hasSignUpIntent = hasPendingSignUpIntent()
-        const isRecentlyCreatedUser = user.createdAt
-          ? (Date.now() - user.createdAt.getTime()) < 10 * 60 * 1000
-          : false
-        // Check if user has previously completed onboarding (client-side flag)
-        const hasCompletedOnboardingLocally = hasCompletedOnboarding(user.id)
-        
-        // Always clean up the welcome flag
-        if (isFromWelcome) {
-          clearFromWelcomeFlow()
-        }
-        if (hasSignUpIntent) {
-          clearSignUpIntent()
-        }
-
-        // FAST PATH: If user has completed onboarding locally, go straight to dashboard
-        // This handles returning users who sign in again
-        if (hasCompletedOnboardingLocally) {
-          devLog('[SSO Callback] User has local onboarding flag, going to dashboard')
-          setStatus('Welcome back! Taking you to your dashboard...')
-          router.replace(resolvePostSignInRoute(user.id))
+        if (desktop) {
+          void initializeDesktopVault(resolvedUserId)
+          await prepareDashboardRedirect('/dashboard', shouldRestoreDashboardWindowSize)
+          if (!cancelled) router.replace('/dashboard')
           return
         }
 
-        setStatus('Checking your profile...')
-
-        // Add delay and error handling to prevent rapid token requests
-        await new Promise(resolve => setTimeout(resolve, 100));
-
-        const token = await getToken({ skipCache: true }).catch((err) => {
-          console.error('Token fetch error in SSO callback:', err);
-          return null;
-        });
-
-        if (!token) {
-          devLog('No token in SSO callback, redirecting to dashboard');
-          router.replace(resolvePostSignInRoute(user.id))
-          return
-        }
-
-        // Check onboarding status from backend
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000);
-
-        const response = await fetch(`${PYTHON_API_BASE}/api/user/profile`, {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          },
-          signal: controller.signal
-        }).catch((err) => {
-          console.error('Profile fetch error in SSO callback:', err);
-          return null;
-        }).finally(() => clearTimeout(timeoutId));
-
-        if (response && response.ok) {
-          const profile = await response.json()
-          devLog('[SSO Callback] Profile data:', profile)
-          devLog('[SSO Callback] Onboarding completed:', profile.onboarding_completed)
-
-          if (profile.onboarding_completed) {
-            // User already completed onboarding - set local flag and go to dashboard
-            markOnboardingCompleted(user.id)
-            setStatus('Welcome back! Taking you to your dashboard...')
-            devLog('[SSO Callback] Redirecting to dashboard - onboarding already completed')
-            router.replace(resolvePostSignInRoute(user.id))
-          } else {
-            // Backend says not completed - check if user has habits (existing user)
-            try {
-              const habitsResponse = await fetch(`${PYTHON_API_BASE}/api/habits`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-              });
-              if (habitsResponse.ok) {
-                const habits = await habitsResponse.json();
-                if (habits && habits.length > 0) {
-                  devLog('[SSO Callback] User has existing habits, skipping onboarding');
-                  // User is clearly an existing user, set local flag and mark in backend
-                  markOnboardingCompleted(user.id)
-                  setStatus('Welcome back! Taking you to your dashboard...')
-                  router.replace(resolvePostSignInRoute(user.id));
-                  return;
-                }
-              }
-            } catch (e) {
-              devLog('[SSO Callback] Could not check habits, proceeding with onboarding check');
-            }
-            
-            // Only redirect to onboarding if:
-            // 1. User came from welcome flow (new signup), OR
-            // 2. User has never completed onboarding locally
-            if (isFromWelcome || hasSignUpIntent || isRecentlyCreatedUser) {
-              setStatus('Setting up your profile...')
-              devLog('[SSO Callback] Redirecting to onboarding - detected new sign-up flow')
-              router.replace('/onboarding')
-            } else {
-              // Returning user but backend shows incomplete - could be DB issue
-              // Default to dashboard since they're trying to sign in (not sign up)
-              devLog('[SSO Callback] Backend shows incomplete but user is signing in - going to dashboard')
-              setStatus('Taking you to your dashboard...')
-              router.replace(resolvePostSignInRoute(user.id))
-            }
+        setStatus('Setting up your account...')
+        const bootstrapStartedAt = window.performance.now()
+        let bootstrap
+        try {
+          bootstrap = await fetchBootstrap(resolvedGetToken, resolvedUserId)
+        } catch (error) {
+          const bootstrapDurationMs = window.performance.now() - bootstrapStartedAt
+          const status = error instanceof BackendClientError ? error.status : null
+          console.info('[Ritual][account-bootstrap] completed', {
+            duration_ms: Math.round(bootstrapDurationMs),
+            status,
+          })
+          if (
+            (error instanceof Error && error.message === 'No auth token available')
+            || (error instanceof BackendClientError && (error.status === 401 || error.status === 403))
+          ) {
+            router.replace('/sign-in')
+            return
           }
-        } else {
-          // Profile doesn't exist or fetch failed
-          if (isFromWelcome || hasSignUpIntent || isRecentlyCreatedUser) {
-            // New user from welcome flow - go to onboarding
-            setStatus('Setting up your profile...')
-            devLog('[SSO Callback] No profile yet, new user - redirecting to onboarding')
-            router.replace('/onboarding')
-          } else {
-            // Returning user but profile fetch failed - go to dashboard
-            devLog('[SSO Callback] Profile fetch failed, status:', response?.status)
-            setStatus('Taking you to your dashboard...')
-            router.replace(resolvePostSignInRoute(user.id))
+          if (error instanceof BackendClientError) {
+            throw new BootstrapError(readBootstrapFailureFromBody(error.responseBody))
+          }
+          throw error
+        }
+        const bootstrapDurationMs = window.performance.now() - bootstrapStartedAt
+        console.info('[Ritual][account-bootstrap] completed', {
+          duration_ms: Math.round(bootstrapDurationMs),
+          status: 200,
+        })
+        if (desktop) {
+          setStatus('Creating your private local vault...')
+          const vaultStatus = await initializeDesktopVault(resolvedUserId)
+          if (!vaultStatus?.initialized) {
+            throw new BootstrapError({
+              code: 'local_vault_unavailable',
+              message: 'Ritual could not create your private local vault. Please try again.',
+            })
           }
         }
+        setStatus('Taking you to Ritual...')
+        const redirectTarget = resolveBootstrapRedirect(bootstrap.nextRoute, readDashboardReturnUrl())
+        if (redirectTarget.startsWith('/onboarding')) {
+          storeBootstrapHandoff(bootstrap)
+        }
+        await prepareDashboardRedirect(redirectTarget, shouldRestoreDashboardWindowSize)
+        router.replace(redirectTarget)
       } catch (error) {
-        console.error('Error checking onboarding:', error)
-        // On error, go to dashboard and let it handle the flow
-        router.replace(resolvePostSignInRoute(user.id))
+        console.error('Error completing sign-in:', error)
+        const persistedOnboardingRoute = error instanceof BootstrapError
+          ? null
+          : readPersistedOnboardingRoute()
+        if (persistedOnboardingRoute) {
+          console.warn('[Ritual][account-bootstrap] recovering saved onboarding route', {
+            route: persistedOnboardingRoute,
+            error: error instanceof Error ? error.message : String(error),
+          })
+          router.replace(persistedOnboardingRoute)
+          return
+        }
+
+        setStatus("We couldn't finish setting up your account.")
+        setFailure({
+          code: error instanceof BootstrapError ? error.code : 'account_setup_failed',
+          message: error instanceof Error
+            ? error.message
+            : 'Ritual could not finish creating your account. Please try again.',
+        })
       }
     }
 
-    checkOnboardingAndRedirect()
-  }, [isLoaded, user, getToken, router])
+    void bootstrapAndRedirect()
+    return () => {
+      cancelled = true
+    }
+  }, [getToken, isLoaded, retryNonce, router, user])
 
   return (
-    <div className="min-h-screen bg-white flex items-center justify-center">
+    <div className="ritual-onboarding-font min-h-screen bg-[#fcfcfa] glass-opaque-screen flex items-center justify-center">
       <div className="text-center">
-        <BrailleSpinner className="mx-auto mb-4 h-12 w-12 text-4xl text-gray-900" />
+        {!failure ? (
+          <BrailleSpinner className="mx-auto mb-4 h-12 w-12 text-4xl text-gray-900" intervalMs={45} />
+        ) : null}
         <p className="text-sm text-gray-600">{status}</p>
+        {failure ? (
+          <>
+            <p role="alert" className="mt-3 max-w-md text-sm leading-6 text-[var(--ritual-text-secondary)]">
+              {failure.message}
+            </p>
+            {failure.code === 'account_identity_conflict' ? (
+              <p className="mt-2 max-w-md text-sm leading-6 text-[var(--ritual-text-muted)]">
+                If you just deleted this account, cleanup may still be processing. Retrying is safe.
+              </p>
+            ) : null}
+            <div className="mt-4 flex justify-center gap-3">
+              <Button
+                variant="outline"
+                className="shadow-none hover:bg-[var(--surface-panel)]"
+                onClick={() => setRetryNonce((current) => current + 1)}
+              >
+                Try again
+              </Button>
+              <Button
+                variant="outline"
+                className="shadow-none hover:bg-[var(--surface-panel)]"
+                onClick={() => void signOut({ redirectUrl: '/sign-in' })}
+              >
+                Sign out
+              </Button>
+            </div>
+          </>
+        ) : null}
       </div>
     </div>
   )

@@ -2,7 +2,7 @@ import type { ComputerSnapshot } from '@/hooks/use-computer-snapshot-query';
 import type {
   ComputerDailyResponseRow as ComputerDailyRow,
   ComputerSummaryResponse as ComputerSummaryState,
-} from '@/lib/computerActivity/client';
+} from '@/lib/computerActivity';
 
 export interface MetricLogEntry {
   habitId: string;
@@ -87,6 +87,18 @@ export function getComputerSummaryHours(summary: ComputerSummaryState): number {
 export function isProjectTimeRollupSnapshot(snapshot?: ComputerSnapshot | null): boolean {
   const source = String(snapshot?.source || snapshot?.summary?.source || '').trim().toLowerCase();
   return source === 'project_time_rollups';
+}
+
+export function getComputerUnavailableDisplay(input: {
+  state?: string;
+  emptyReason?: string;
+  looksEmpty: boolean;
+  isPlaceholder: boolean;
+}): string | null {
+  if (!input.looksEmpty || input.isPlaceholder || input.state === 'empty') return null;
+  if (input.emptyReason?.includes('update_required')) return 'Update required';
+  if (input.state === 'sync_pending') return '—';
+  return 'Unavailable';
 }
 
 export function calculateTrackedSpanDays(dateKeys: string[]): number {

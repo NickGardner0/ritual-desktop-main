@@ -213,7 +213,10 @@ def upgrade() -> None:
     Base.metadata.create_all(bind=connection)
 
     for table_name, column_name, sql in COLUMN_MIGRATIONS:
-        if not _column_exists(connection, table_name, column_name):
+        # Some legacy features have since been removed from current metadata;
+        # their historical CREATE statement runs below, so defer their columns
+        # instead of attempting to ALTER a table that no longer exists yet.
+        if _table_exists(connection, table_name) and not _column_exists(connection, table_name, column_name):
             connection.exec_driver_sql(sql)
 
     for _, sql in CREATE_TABLE_SQL:

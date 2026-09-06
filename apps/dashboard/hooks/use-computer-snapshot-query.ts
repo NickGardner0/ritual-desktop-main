@@ -10,14 +10,15 @@ import {
   type ComputerSummaryResponse,
   type TopAppResponseRow,
   type TopDomainResponseRow,
-} from '@/lib/computerActivity/client';
+} from '@/lib/computerActivity';
 import { getAnalyticsRangeKey, getAnalyticsRangeWindow } from '@/lib/dashboard/analytics-range';
+import { isDesktopTauriRuntime } from '@/lib/desktop-bridge/environment';
 import { QUERY_POLICY } from '@/lib/query-policies';
 
 const COMPUTER_SNAPSHOT_STORAGE_KEY = 'ritual:computer-snapshot:v2';
 const SNAPSHOT_MAX_AGE_MS = 1000 * 60 * 60 * 24 * 7;
 const LEGACY_SNAPSHOT_MAX_AGE_MS = 1000 * 60 * 60 * 24 * 90;
-const COMPUTER_ACTIVITY_ALL_TIME_START_DATE = '2020-01-01';
+const COMPUTER_ACTIVITY_ALL_TIME_START_DATE = '1970-01-01';
 
 export type ComputerSnapshot = {
   summary: ComputerSummaryResponse;
@@ -26,6 +27,9 @@ export type ComputerSnapshot = {
   domains: TopDomainResponseRow[];
   source?: string;
   state?: string;
+  scope?: string;
+  lastSyncedAt?: number | string | null;
+  pendingRollups: number;
   syncPending: boolean;
   emptyReason?: string;
 };
@@ -44,6 +48,9 @@ function toComputerSnapshot(payload: AggregatedComputerStatsResponse): ComputerS
     domains: payload.domains,
     source: payload.source,
     state: payload.state,
+    scope: payload.scope,
+    lastSyncedAt: payload.last_synced_at,
+    pendingRollups: Math.max(0, Number(payload.pending_rollups || 0)),
     syncPending: Boolean(payload.sync_pending),
     emptyReason: payload.empty_reason,
   };
@@ -63,6 +70,7 @@ const EMPTY_COMPUTER_SNAPSHOT: ComputerSnapshot = {
   domains: [],
   source: 'empty',
   state: 'empty',
+  pendingRollups: 0,
   syncPending: false,
 };
 
@@ -134,6 +142,7 @@ function readLegacyOverviewComputerSnapshot(
       domains: [],
       source: 'legacy_overview_cache',
       state: 'legacy_cache_fallback',
+      pendingRollups: 0,
       syncPending: false,
     };
 
@@ -215,6 +224,7 @@ export function useComputerSnapshotQuery({
   const rangeWindow = useMemo(() => getAnalyticsRangeWindow(dateRange), [dateRange]);
   const rangeKey = rangeWindow.rangeKey;
   const queryUserId = userId ?? 'anonymous';
+  const shouldAutoRefresh = isDesktopTauriRuntime();
   const persistedSnapshot = useMemo(
     () => readPersistedSnapshot(userId, rangeKey),
     [userId, rangeKey],
@@ -248,7 +258,9 @@ export function useComputerSnapshotQuery({
     placeholderData: (previous) => previous ?? persistedSnapshot?.data ?? EMPTY_COMPUTER_SNAPSHOT,
     staleTime: QUERY_POLICY.computerSnapshot.staleTime,
     gcTime: QUERY_POLICY.computerSnapshot.gcTime,
-    refetchOnWindowFocus: false,
+    refetchOnWindowFocus: shouldAutoRefresh,
+    refetchInterval: shouldAutoRefresh ? 5_000 : false,
+    refetchIntervalInBackground: shouldAutoRefresh,
   });
 
   useEffect(() => {

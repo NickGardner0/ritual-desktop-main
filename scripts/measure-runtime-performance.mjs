@@ -66,20 +66,33 @@ async function waitForHttp(url, timeoutMs) {
   while (performance.now() - startedAt < timeoutMs) {
     try {
       const response = await fetch(url, { redirect: "manual" });
-      return {
-        status: "ready",
-        status_code: response.status,
-        ready_ms: Math.round(performance.now() - startedAt),
-      };
+      if (response.status < 500) {
+        return {
+          status: "ready",
+          status_code: response.status,
+          ready_ms: Math.round(performance.now() - startedAt),
+        };
+      }
+      lastError = `HTTP ${response.status}`;
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error);
-      await new Promise((resolve) => setTimeout(resolve, 250));
     }
+    await new Promise((resolve) => setTimeout(resolve, 250));
   }
   return {
     status: "timeout",
     ready_ms: Math.round(performance.now() - startedAt),
     error: lastError,
+  };
+}
+
+async function measureRequest(url, headers = {}) {
+  const startedAt = performance.now();
+  const response = await fetch(url, { redirect: "manual", headers });
+  return {
+    url,
+    status_code: response.status,
+    ttfb_ms: Math.round(performance.now() - startedAt),
   };
 }
 
@@ -96,7 +109,17 @@ async function measureStart() {
   child.stdout.on("data", capture);
   child.stderr.on("data", capture);
 
-  const readiness = await waitForHttp(`http://127.0.0.1:${port}`, 30000);
+  const origin = `http://127.0.0.1:${port}`;
+  const desktopHeaders = { "user-agent": "RitualDesktop/0.1.1 (route-readiness)" };
+  const readiness = await waitForHttp(`${origin}/desktop-only`, 30000);
+  let routes = null;
+  if (readiness.status === "ready") {
+    routes = {
+      desktop_only: await measureRequest(`${origin}/desktop-only`),
+      dashboard: await measureRequest(`${origin}/dashboard`, desktopHeaders),
+      chat: await measureRequest(`${origin}/chat`, desktopHeaders),
+    };
+  }
   child.kill("SIGTERM");
   await new Promise((resolve) => child.once("close", resolve));
 
@@ -106,29 +129,41 @@ async function measureStart() {
     status: readiness.status === "ready" ? "success" : "failed",
     duration_ms: Math.round(performance.now() - startedAt),
     readiness,
-    output_tail: output.join("").slice(-12000),
+    routes,
+    output_tail: output.join("").slice(-4000),
   };
 }
+
+const slim = args.has("--slim") || String(outputPath).endsWith("route-readiness.json");
 
 const measurements = {
   collected_at: new Date().toISOString(),
   node_version: process.version,
   next_version: readPackageVersion("next"),
   commands: [],
-  artifacts: {},
 };
+
+if (!slim) {
+  measurements.artifacts = {};
+}
 
 if (!skipBuild) {
   measurements.commands.push(await runCommand("production-build", "npm", ["run", "build"]));
 }
 
-measurements.artifacts.next_build_bytes = directoryBytes(join(root, "apps/dashboard/.next"));
-measurements.artifacts.next_static_bytes = directoryBytes(join(root, "apps/dashboard/.next/static"));
-measurements.artifacts.server_app_bytes = directoryBytes(join(root, "apps/dashboard/.next/server/app"));
+if (!slim) {
+  measurements.artifacts.next_build_bytes = directoryBytes(join(root, "apps/dashboard/.next"));
+  measurements.artifacts.next_static_bytes = directoryBytes(join(root, "apps/dashboard/.next/static"));
+  measurements.artifacts.server_app_bytes = directoryBytes(join(root, "apps/dashboard/.next/server/app"));
+}
 
 if (!skipStart) {
   if (existsSync(join(root, "apps/dashboard/.next"))) {
-    measurements.commands.push(await measureStart());
+    const startMeasurement = await measureStart();
+    if (slim) {
+      delete startMeasurement.output_tail;
+    }
+    measurements.commands.push(startMeasurement);
   } else {
     measurements.commands.push({
       name: "next-start-readiness",

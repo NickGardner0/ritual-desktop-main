@@ -3,20 +3,43 @@
   "description": "Source-level performance and complexity budgets. These are cheap CI guards; runtime timing baselines should be collected with a real build before release.",
   "budgets": {
     "dashboardApiRoutesMax": 39,
-    "dashboardTsxFileMaxLines": 1600,
-    "backendProviderServiceMaxLines": 850,
+    "dashboardTsxFileMaxLines": 800,
+    "backendProviderServiceMaxLines": 650,
     "trackedFileMaxLines": {
-      "apps/dashboard/components/ai-habit-chat.tsx": 1535,
-      "apps/dashboard/app/(dashboard)/calendar/calendar-client.tsx": 1361,
-      "apps/dashboard/components/analytics/overview-view.tsx": 1403,
-      "apps/dashboard/components/apple-watch-settings.tsx": 1226,
-      "apps/dashboard/app/(dashboard)/reports/reports-client.tsx": 1432,
-      "apps/dashboard/components/data-import-modal.tsx": 1223,
-      "apps/backend/services/whoop_service.py": 746,
+      "apps/dashboard/components/ai-habit-chat.tsx": 550,
+      "apps/dashboard/app/(dashboard)/calendar/calendar-client.tsx": 530,
+      "apps/dashboard/components/analytics/overview/OverviewView.tsx": 180,
+      "apps/dashboard/components/apple-watch-settings.tsx": 720,
+      "apps/dashboard/components/data-import-modal.tsx": 130,
+      "apps/dashboard/components/analytics/overview/useOverviewMetrics.ts": 560,
+      "apps/dashboard/app/(dashboard)/chat/chat-client.impl.tsx": 720,
+      "apps/dashboard/app/(dashboard)/tasks/tasks-ui.tsx": 860,
+      "apps/backend/services/whoop_service.py": 560,
+      "apps/backend/services/whoop_sync_payload.py": 375,
       "apps/backend/services/whoop_api_client.py": 311,
       "apps/backend/services/whoop_tinybird_sink.py": 113,
-      "apps/backend/services/oura_service.py": 295,
-      "apps/backend/services/garmin_service.py": 228
+      "apps/backend/services/oura_service.py": 225,
+      "apps/backend/services/oura_sync_payload.py": 140,
+      "apps/backend/services/garmin_service.py": 220,
+      "apps/backend/services/garmin_account_payload.py": 55
+    }
+  },
+  "sourceGuards": {
+    "noHoveredRowIndex": {
+      "file": "apps/dashboard/components/tables/habit-logs/data-table.tsx",
+      "forbidden": "hoveredRowIndex"
+    },
+    "noTransitionAll": {
+      "file": "apps/dashboard/app/globals.css",
+      "forbidden": "transition:\\s*all"
+    },
+    "noHostedRedirectHappyPath": {
+      "file": "apps/desktop/src/DesktopShellApp.jsx",
+      "forbidden": "location\\.replace\\(bootstrap"
+    },
+    "localDesktopUiDist": {
+      "file": "apps/desktop/src-tauri/tauri.conf.json",
+      "required": "desktop-ui/dist"
     }
   }
 }

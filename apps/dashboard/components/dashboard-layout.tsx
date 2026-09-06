@@ -1,12 +1,17 @@
 "use client";
 
-import { useState, useEffect, Suspense } from 'react';
+import { useState, useEffect, Suspense, useCallback } from 'react';
 import { useAI } from '@/contexts/AIContext';
 import { useFont } from '@/contexts/FontContext';
+import { RightDockTargetProvider } from '@/contexts/RightDockContext';
 import { DashboardSearchHandler } from '@/components/dashboard-search-handler';
-import { isTauri } from '@/lib/tauri-utils';
-import { usePathname, useSearchParams } from 'next/navigation';
+import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
+import { usePathname, useSearchParams } from '@/lib/app-navigation';
 import dynamic from 'next/dynamic';
+import { useSidebarMode } from '@/contexts/SidebarModeContext';
+import { ContentSurface } from '@/components/ui/ritual-system';
+import { useChromeAppearance } from '@/contexts/ChromeAppearanceContext';
+import { syncSidebarGlassWidth } from '@/lib/native-gateway';
 
 const Sidebar = dynamic(
   () => import('@/components/sidebar').then(m => ({ default: m.Sidebar })),
@@ -14,17 +19,18 @@ const Sidebar = dynamic(
 );
 
 const CommandPalette = dynamic(
-  () => import('@/components/habit-selector'),
+  () => import('@/components/command-palette'),
   { ssr: false }
 );
 
 /** Syncs route to detached sidebar - uses useSearchParams so must be in Suspense */
 function SidebarRouteSync({ detachedSidebarMode }: { detachedSidebarMode: boolean }) {
+  const { isDesktop } = useDesktopCapabilities();
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
   useEffect(() => {
-    if (!detachedSidebarMode || !isTauri()) return;
+    if (!detachedSidebarMode || !isDesktop) return;
     (async () => {
       const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
       const route = `${pathname}${searchParams?.toString() ? `?${searchParams.toString()}` : ''}`;
@@ -41,14 +47,21 @@ interface DashboardLayoutProps {
 }
 
 export function DashboardLayout({ children }: DashboardLayoutProps) {
+  const { isDesktop } = useDesktopCapabilities();
   const [shouldOpenWhoopModal, setShouldOpenWhoopModal] = useState(false);
   const [detachedSidebarMode, setDetachedSidebarMode] = useState(false);
   const [detachedSidebarWidth, setDetachedSidebarWidth] = useState(76);
   const { isFullScreenChat } = useAI();
   const pathname = usePathname();
+  const { mode } = useSidebarMode();
+  const { appearance } = useChromeAppearance();
   const isChatRoute = pathname === '/chat';
   const { fontClass } = useFont();
   const shouldMountSearchHandler = pathname === '/dashboard';
+  const [rightDockEl, setRightDockEl] = useState<HTMLElement | null>(null);
+  const rightDockRef = useCallback((node: HTMLDivElement | null) => {
+    setRightDockEl(node);
+  }, []);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -76,7 +89,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   }, []);
 
   useEffect(() => {
-    if (!detachedSidebarMode || !isTauri()) return;
+    if (!detachedSidebarMode || !isDesktop) return;
 
     let unlisten: (() => void) | null = null;
     (async () => {
@@ -87,7 +100,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
       try {
         const state = await invoke<{ width?: number }>('sidebar_get_main_state');
         if (typeof state?.width === 'number') {
-          setDetachedSidebarWidth(Math.max(76, Math.min(240, state.width)));
+          setDetachedSidebarWidth(Math.max(76, Math.min(256, state.width)));
         }
       } catch (error) {
         console.error('Failed to get detached sidebar state:', error);
@@ -95,7 +108,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
 
       unlisten = await listen<number>('sidebar:width', (event) => {
         if (typeof event.payload === 'number') {
-          setDetachedSidebarWidth(Math.max(76, Math.min(240, event.payload)));
+          setDetachedSidebarWidth(Math.max(76, Math.min(256, event.payload)));
         }
       });
 
@@ -109,17 +122,28 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
     };
   }, [detachedSidebarMode]);
 
-  const shouldHideAppSidebar = isFullScreenChat || isChatRoute;
+  const shouldHideAppSidebarForRoute = isFullScreenChat || isChatRoute;
+  const shouldHideAppSidebarForMode = mode === 'hidden';
+  const shouldHideAppSidebar = shouldHideAppSidebarForRoute || shouldHideAppSidebarForMode;
+  const contentTouchesWindowChrome = detachedSidebarMode || shouldHideAppSidebar;
 
   useEffect(() => {
     if (typeof document === 'undefined') return;
+    const sidebarWidth =
+      detachedSidebarMode || shouldHideAppSidebar
+        ? 0
+        : mode === 'expanded'
+          ? 256
+          : 76;
     if (detachedSidebarMode || shouldHideAppSidebar) {
       document.documentElement.style.setProperty('--ritual-sidebar-current-width', '0px');
     }
-  }, [detachedSidebarMode, shouldHideAppSidebar]);
+    if (!isDesktop) return;
+    void syncSidebarGlassWidth(appearance === 'frosted' ? sidebarWidth : 0);
+  }, [appearance, detachedSidebarMode, isDesktop, mode, shouldHideAppSidebar]);
 
   return (
-    <div className={`app-container flex h-screen overflow-x-hidden max-w-full w-full border-0 ${fontClass}`}>
+    <div className={`app-container integrated-window-chrome flex h-screen overflow-x-hidden max-w-full w-full border-0 ${fontClass}`}>
       {/* Sync route to detached sidebar (useSearchParams requires Suspense) */}
       <Suspense fallback={null}>
         <SidebarRouteSync detachedSidebarMode={detachedSidebarMode} />
@@ -133,59 +157,67 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
         </Suspense>
       ) : null}
       
-      {/* Clean Midday-style Sidebar - Hidden in Full-Screen Chat */}
-      {!shouldHideAppSidebar && !detachedSidebarMode && <Sidebar />}
-
-      {/* Main Content Area */}
-      <div className="content-opaque flex-1 flex flex-col overflow-hidden border-0 bg-[var(--content-bg)]">
-        {/* Top Header — the header itself is the draggable toolbar chrome.
-            Interactive controls opt out via no-drag so blank space still drags
-            like a native macOS titlebar. */}
-        {!isFullScreenChat && (
-        <header
-          data-tauri-drag-region
-          className="content-opaque titlebar-region tauri-drag-region relative px-5 h-[52px] flex items-center bg-[var(--content-bg)] overflow-hidden"
-        >
-          {isChatRoute && (
-            <div
-              data-tauri-drag-region
-              className="chat-header-sidebar-strip absolute inset-y-0 left-0 w-[272px] border-r border-[rgba(15,23,42,0.03)] bg-[#f4f4f3]"
-            />
+      <div className={`app-window-shell relative flex h-full min-w-0 flex-1 flex-col overflow-hidden ${!shouldHideAppSidebar && !detachedSidebarMode ? 'has-shell-sidebar-divider' : ''}`}>
+        <div className="app-body flex min-h-0 flex-1 overflow-hidden">
+          {/* Clean Midday-style Sidebar - Hidden in Full-Screen Chat */}
+          {!shouldHideAppSidebar && !detachedSidebarMode && (
+            <Sidebar commandPaletteInitialOpen={shouldOpenWhoopModal} />
           )}
-          <div
-            data-tauri-drag-region
-            className="relative flex items-center w-full translate-y-[4px]"
-          >
-            {/* Left zone — Search + page-specific left actions */}
-            <div
-              className="no-drag flex items-center space-x-2.5 min-w-0"
-            >
-              {!isChatRoute && (
-                <div>
-                  <CommandPalette
-                    className="h-8 w-auto px-3 py-1.5 text-[13px] text-gray-600 flex items-center gap-2 focus-visible:outline-none focus-visible:ring-0 border border-gray-200/90 bg-white shadow-sm hover:bg-gray-50 rounded-sm"
-                    initialOpen={shouldOpenWhoopModal}
-                  />
-                </div>
-              )}
-              <div id="header-left-slot" className="flex items-center space-x-2.5" />
+
+          {/* Main content column + full-height right dock (Cursor-style) */}
+          <RightDockTargetProvider target={rightDockEl}>
+            <div className="content-shell flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden border-0">
+              <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+                {!isFullScreenChat && (
+                  <div
+                    data-tauri-drag-region
+                    className={`dashboard-app-toolbar app-toolbar-region tauri-drag-region relative flex h-12 shrink-0 items-center bg-[var(--content-bg)] ${contentTouchesWindowChrome ? 'pl-[84px] pr-3' : 'px-4'}`}
+                  >
+                    <div
+                      data-tauri-drag-region
+                      className="dashboard-app-toolbar-row grid h-7 w-full min-w-0 grid-cols-[minmax(140px,1fr)_auto_minmax(140px,1fr)] items-center gap-2"
+                    >
+                      <div data-tauri-drag-region className="flex min-w-0 items-center">
+                        {!isChatRoute && contentTouchesWindowChrome && (
+                          <CommandPalette
+                            className="app-toolbar-control no-drag -translate-y-2"
+                            initialOpen={shouldOpenWhoopModal}
+                            density="tight"
+                          />
+                        )}
+                        <div id="header-left-slot" className="no-drag ml-1 flex items-center gap-0.5" />
+                      </div>
+
+                      <div
+                        id="header-center-slot"
+                        className="no-drag flex min-w-0 items-center justify-center"
+                      />
+
+                      <div data-tauri-drag-region className="flex min-w-0 items-center justify-end">
+                        <div className="no-drag flex h-7 items-center gap-0.5">
+                          <div
+                            id="header-right-slot"
+                            className="no-drag flex h-7 min-w-0 items-center gap-0.5"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                {/* Main Content */}
+                <ContentSurface className="content-opaque flex flex-col flex-1 overflow-auto border-0">
+                  {children}
+                </ContentSurface>
+              </div>
+
+              <div
+                ref={rightDockRef}
+                id="ritual-right-dock"
+                className="relative z-20 flex h-full shrink-0 items-stretch overflow-visible"
+              />
             </div>
-
-            {/* Center zone — Primary navigation tabs (Chat · Overview · Metrics) */}
-            <div className="pointer-events-none absolute inset-x-0 flex justify-center">
-              <div id="header-center-slot" className="pointer-events-auto no-drag flex items-center" />
-            </div>
-
-            {/* Right zone — Date picker, + button, etc. */}
-            <div id="header-right-slot" className="no-drag ml-auto flex items-center gap-2 min-w-0" />
-          </div>
-        </header>
-        )}
-
-        {/* Main Content */}
-        <main className={`content-opaque flex flex-col flex-1 overflow-auto border-0 bg-[var(--content-bg)]`}>
-          {children}
-        </main>
+          </RightDockTargetProvider>
+        </div>
       </div>
     </div>
   );

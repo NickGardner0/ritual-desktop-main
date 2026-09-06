@@ -3,18 +3,30 @@
 from __future__ import annotations
 
 import logging
+import os
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, or_
 
 from database.connection import get_db_session
 from database.models import HabitDB, HabitLogDB
 from services.analytics_service import analytics_service
+from services.computed_metrics_service import (
+    computed_metrics_service,
+    is_computed_computer_time_habit,
+)
+from services.habit_daily_policy import daily_policy_v2_enabled
 
 logger = logging.getLogger(__name__)
+
+_HEART_RATE_BUCKETS = {"1m", "hour", "day"}
+
+
+def _metric_facts_reads_enabled() -> bool:
+    return os.getenv("METRIC_FACTS_READS", "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def create_analytics_router(
@@ -32,11 +44,239 @@ def create_analytics_router(
     async def get_habits_summary(
         request: Request,
         days_back: int = Query(30, ge=1, le=36500),  # Allow "All time" queries (~100 years)
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
         current_user=Depends(get_current_user),
     ):
         try:
             tb = require_tinybird()
-            return await tb.get_user_habits_summary(current_user["id"], days_back)
+            payload = await tb.get_habits_summary_payload(
+                current_user["id"],
+                days_back,
+                start_date,
+                end_date,
+            )
+            async with get_db_session() as session:
+                habits_result = await session.execute(
+                    select(HabitDB).where(HabitDB.user_id == current_user["id"])
+                )
+                computer_habit = next(
+                    (
+                        habit
+                        for habit in habits_result.scalars().all()
+                        if is_computed_computer_time_habit(habit)
+                    ),
+                    None,
+                )
+            if computer_habit is not None:
+                computed_row = await computed_metrics_service.build_summary_row(
+                    user_id=current_user["id"],
+                    habit=computer_habit,
+                    start_date=start_date,
+                    end_date=end_date,
+                    days_back=days_back,
+                    custom_range=bool(start_date and end_date),
+                )
+                rows = [
+                    row
+                    for row in payload.get("data") or []
+                    if row.get("habit_id") != computer_habit.id
+                ]
+                rows.append(computed_row)
+                payload["data"] = rows
+            return payload
+        except HTTPException:
+            raise
+        except Exception:
+            raise HTTPException(status_code=400, detail="Request could not be processed.")
+
+    @router.get("/habits/logs")
+    @limiter.limit("20/minute")
+    async def get_habit_logs_time_range(
+        request: Request,
+        start_date: str,
+        end_date: str,
+        habit_id: Optional[str] = None,
+        limit: int = Query(1000, ge=1, le=1000),
+        current_user=Depends(get_current_user),
+    ):
+        try:
+            tb = require_tinybird()
+            return await tb.get_habit_logs_time_range_payload(
+                current_user["id"],
+                start_date,
+                end_date,
+                limit,
+                habit_id,
+            )
+        except HTTPException:
+            raise
+        except Exception:
+            raise HTTPException(status_code=400, detail="Request could not be processed.")
+
+    @router.get("/habits/logs/all")
+    @limiter.limit("20/minute")
+    async def get_habit_logs_all(
+        request: Request,
+        q: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        categories: Optional[str] = None,
+        habits: Optional[str] = None,
+        statuses: Optional[str] = None,
+        sources: Optional[str] = None,
+        sort: str = "time",
+        order: str = "desc",
+        timezone: Optional[str] = None,
+        limit: int = Query(200, ge=1, le=1000),
+        offset: int = Query(0, ge=0),
+        current_user=Depends(get_current_user),
+    ):
+        try:
+            from services.habit_logs_all_service import habit_logs_all_service
+
+            return await habit_logs_all_service.get_habit_logs_all(
+                current_user["id"],
+                q=q,
+                start_date=start_date,
+                end_date=end_date,
+                categories=categories,
+                habits=habits,
+                statuses=statuses,
+                sources=sources,
+                sort=sort,
+                order=order,
+                timezone_name=timezone or "UTC",
+                limit=limit,
+                offset=offset,
+            )
+        except HTTPException:
+            raise
+        except Exception:
+            logger.exception("Habit logs/all failed for user=%s", current_user["id"])
+            raise HTTPException(status_code=400, detail="Request could not be processed.")
+
+    @router.get("/habits/daily-values")
+    @limiter.limit("20/minute")
+    async def get_habit_daily_values(
+        request: Request,
+        output: str = "summary",
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        habit_id: Optional[str] = None,
+        habit_ids: Optional[str] = None,
+        days_back: int = Query(30, ge=1, le=1825),
+        current_user=Depends(get_current_user),
+    ):
+        normalized_output = (output or "summary").lower()
+        if normalized_output not in {"summary", "daily"}:
+            raise HTTPException(status_code=400, detail='Invalid output. Use "summary" or "daily".')
+        try:
+            if _metric_facts_reads_enabled():
+                from services.metric_facts_service import metric_fact_service
+
+                resolved_ids = [habit_id] if habit_id else [
+                    item.strip() for item in (habit_ids or "").split(",") if item.strip()
+                ]
+                payload = (
+                    await metric_fact_service.get_daily_facts(
+                        user_id=current_user["id"],
+                        start_date=start_date,
+                        end_date=end_date,
+                        days_back=days_back,
+                        habit_ids=resolved_ids or None,
+                    )
+                    if normalized_output == "daily"
+                    else await metric_fact_service.get_summary_facts(
+                        user_id=current_user["id"],
+                        start_date=start_date,
+                        end_date=end_date,
+                        days_back=days_back,
+                        habit_ids=resolved_ids or None,
+                    )
+                )
+                rows = payload.get("data") or []
+                return {
+                    "success": True,
+                    "output": normalized_output,
+                    "data": rows,
+                    "meta": {
+                        **(payload.get("meta") or {}),
+                        "user_id": current_user["id"],
+                        "source": "metric_daily_facts",
+                        "habit_id": habit_id,
+                        "habit_ids": None if habit_id else (habit_ids or None),
+                        "start_date": start_date,
+                        "end_date": end_date,
+                        "days_back": None if start_date and end_date else days_back,
+                        "rows": len(rows),
+                    },
+                }
+
+            tb = require_tinybird()
+            return await tb.get_habit_daily_values_payload(
+                current_user["id"],
+                normalized_output,
+                days_back,
+                start_date,
+                end_date,
+                habit_id,
+                habit_ids,
+                daily_policy_v2_enabled(current_user["id"]),
+            )
+        except HTTPException:
+            raise
+        except Exception:
+            raise HTTPException(status_code=400, detail="Request could not be processed.")
+
+    @router.get("/heart-rate/summary")
+    @limiter.limit("20/minute")
+    async def get_heart_rate_summary(
+        request: Request,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        source_type: Optional[str] = None,
+        days_back: int = Query(30, ge=1, le=1825),
+        current_user=Depends(get_current_user),
+    ):
+        try:
+            tb = require_tinybird()
+            return await tb.get_heart_rate_summary_payload(
+                current_user["id"],
+                days_back,
+                start_date,
+                end_date,
+                source_type,
+            )
+        except HTTPException:
+            raise
+        except Exception:
+            raise HTTPException(status_code=400, detail="Request could not be processed.")
+
+    @router.get("/heart-rate/series")
+    @limiter.limit("20/minute")
+    async def get_heart_rate_series(
+        request: Request,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        source_type: Optional[str] = None,
+        bucket: str = "day",
+        days_back: int = Query(30, ge=1, le=1825),
+        current_user=Depends(get_current_user),
+    ):
+        normalized_bucket = (bucket or "day").lower()
+        if normalized_bucket not in _HEART_RATE_BUCKETS:
+            raise HTTPException(status_code=400, detail="Invalid bucket. Use 1m, hour, or day.")
+        try:
+            tb = require_tinybird()
+            return await tb.get_heart_rate_series_payload(
+                current_user["id"],
+                normalized_bucket,
+                days_back,
+                start_date,
+                end_date,
+                source_type,
+            )
         except HTTPException:
             raise
         except Exception:
@@ -219,6 +459,27 @@ def create_analytics_router(
         days_back: int = Query(30, ge=7, le=36500),
         current_user=Depends(get_current_user),
     ):
+        if habit1_id and habit2_id and habit1_id == habit2_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot calculate correlation between the same habit",
+            )
+        if habit1_id and habit2_id:
+            try:
+                tb = require_tinybird()
+                return await tb.get_habit_correlation_payload(
+                    current_user["id"],
+                    habit1_id,
+                    habit2_id,
+                    min(max(days_back, 7), 365),
+                )
+            except HTTPException:
+                raise
+            except Exception:
+                logger.exception(
+                    "Tinybird habit correlation failed for user=%s; falling back to SQL",
+                    current_user["id"],
+                )
         try:
             return await analytics_service.get_correlation(
                 user_id=current_user["id"],
@@ -327,12 +588,20 @@ def create_analytics_router(
                 results = []
                 for habit in habits:
                     # Get all log dates for this habit, sorted ascending
+                    completed_filter = HabitLogDB.status == "completed"
+                    if daily_policy_v2_enabled(current_user["id"]):
+                        completed_filter = or_(
+                            HabitLogDB.status.is_(None),
+                            HabitLogDB.status == "",
+                            HabitLogDB.status == "completed",
+                            HabitLogDB.status == "success",
+                        )
                     log_result = await session.execute(
                         select(HabitLogDB.date)
                         .where(
                             and_(
                                 HabitLogDB.habit_id == habit.id,
-                                HabitLogDB.status == "completed",
+                                completed_filter,
                             )
                         )
                         .order_by(HabitLogDB.date.asc())

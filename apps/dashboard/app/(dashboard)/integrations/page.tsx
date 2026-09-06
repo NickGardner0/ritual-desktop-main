@@ -1,6 +1,6 @@
 /**
  * Integrations Page - CLIENT Component with React Query
- * 
+ *
  * Following Midday's pattern for instant navigation:
  * - Client-side data fetching with React Query
  * - Aggressive caching (2 minutes)
@@ -11,6 +11,7 @@
 
 import { Suspense } from 'react';
 import { IntegrationsClient } from './integrations-client';
+import { IntegrationsMarketplaceSkeleton } from './integrations-client.cards';
 
 /**
  * Integrations Page - Fully client-side for instant caching
@@ -18,23 +19,9 @@ import { IntegrationsClient } from './integrations-client';
 export default function IntegrationsPage() {
   return (
     <div className="flex-1 overflow-auto">
-      <div className="max-w-7xl mx-auto py-8 px-8">
-        <Suspense fallback={
-          <div>
-            <div className="flex items-center mb-6">
-              <div className="w-4 h-4 rounded mr-2 animate-shimmer bg-[length:200%_100%] bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200"></div>
-              <div className="h-5 w-28 rounded animate-shimmer bg-[length:200%_100%] bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200"></div>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {[1,2,3,4,5,6].map(i => (
-                <div key={i} className="border border-gray-200 p-4 h-[200px] animate-shimmer bg-[length:200%_100%] bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200" />
-              ))}
-            </div>
-          </div>
-        }>
-          <IntegrationsClient />
-        </Suspense>
-      </div>
+      <Suspense fallback={<IntegrationsMarketplaceSkeleton />}>
+        <IntegrationsClient />
+      </Suspense>
     </div>
   );
 }

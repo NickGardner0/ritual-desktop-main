@@ -8,7 +8,7 @@ import logging
 import os
 from typing import Any, Callable, Optional
 
-from fastapi import APIRouter, Body, Depends, Header, HTTPException
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request
 
 from schemas.financial import (
     FinancialAccountPreferenceUpdateRequest,
@@ -25,6 +25,11 @@ from services.financial_connection_service import financial_connection_service
 from services.financial_rollup_service import financial_rollup_service
 from services.financial_sync_service import financial_sync_service
 from services.plaid_service import PlaidAPIError, plaid_service
+from services.privacy_policy import (
+    can_send_to_cloud,
+    request_cloud_consents,
+    request_privacy_mode,
+)
 from services.token_crypto import token_crypto
 
 logger = logging.getLogger(__name__)
@@ -35,6 +40,25 @@ def create_financial_router(
     get_current_user: Callable[..., Any],
 ) -> APIRouter:
     router = APIRouter(prefix="/api/financial", tags=["financial"])
+
+    def _enforce_financial_sync_consent(request: Request) -> None:
+        decision = can_send_to_cloud(
+            data_class="financial",
+            destination="provider_api",
+            purpose="provider_sync",
+            mode=request_privacy_mode(request.headers),
+            consents=request_cloud_consents(request.headers),
+        )
+        if not decision.allowed:
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "error": "Cloud consent required",
+                    "privacy_blocked": True,
+                    "reason": decision.reason,
+                    "required_consent": "provider_sync",
+                },
+            )
 
     def _serialize_connection(item: dict[str, Any]) -> dict[str, Any]:
         return {
@@ -56,10 +80,12 @@ def create_financial_router(
 
     @router.post("/plaid/link-token", response_model=PlaidLinkTokenResponse)
     async def create_plaid_link_token(
+        fastapi_request: Request,
         request: Optional[PlaidLinkTokenRequest] = Body(default=None),
         current_user=Depends(get_current_user),
     ):
         try:
+            _enforce_financial_sync_consent(fastapi_request)
             request = request or PlaidLinkTokenRequest()
             access_token: Optional[str] = None
             if request.update_mode:
@@ -94,10 +120,12 @@ def create_financial_router(
 
     @router.post("/plaid/exchange-public-token", response_model=FinancialConnectionActionResponse)
     async def exchange_plaid_public_token(
+        fastapi_request: Request,
         request: PlaidExchangePublicTokenRequest,
         current_user=Depends(get_current_user),
     ):
         try:
+            _enforce_financial_sync_consent(fastapi_request)
             exchange = await plaid_service.exchange_public_token(request.public_token)
             access_token = exchange.get("access_token")
             item_id = exchange.get("item_id")
@@ -179,10 +207,12 @@ def create_financial_router(
 
     @router.post("/connections/{connection_id}/backfill", response_model=FinancialSyncResponse)
     async def backfill_financial_connection(
+        request: Request,
         connection_id: str,
         current_user=Depends(get_current_user),
     ):
         try:
+            _enforce_financial_sync_consent(request)
             result = await financial_sync_service.backfill_connection(
                 current_user["id"],
                 connection_id,
@@ -206,10 +236,12 @@ def create_financial_router(
 
     @router.post("/connections/{connection_id}/sync", response_model=FinancialSyncResponse)
     async def sync_financial_connection(
+        request: Request,
         connection_id: str,
         current_user=Depends(get_current_user),
     ):
         try:
+            _enforce_financial_sync_consent(request)
             result = await financial_sync_service.sync_connection(
                 current_user["id"],
                 connection_id,
@@ -331,6 +363,7 @@ def create_financial_router(
 
     @router.post("/sync-all")
     async def sync_all_financial_connections(
+        request: Request,
         payload: Optional[FinancialScheduledSyncRequest] = None,
         internal_key: Optional[str] = Header(None, alias="X-Internal-Key"),
     ):
@@ -341,9 +374,23 @@ def create_financial_router(
             raise HTTPException(status_code=403, detail="Invalid internal API key")
 
         try:
-            return await financial_sync_service.sync_all_active(
-                hour=payload.hour if payload else None,
+            _enforce_financial_sync_consent(request)
+            from services.scheduler_service import utc_now
+
+            requested_hour = payload.hour if payload and payload.hour is not None else utc_now().hour
+            from background_tasks import run_financial_scheduler_job
+            from services.scheduler_service import resolve_hourly_delivery_occurrence
+
+            execution = await run_financial_scheduler_job(
+                lambda: financial_sync_service.sync_all_active(hour=requested_hour),
+                now=resolve_hourly_delivery_occurrence(requested_hour),
             )
+            return {
+                "success": True,
+                "occurrence_status": execution.status,
+                "scheduled_for": execution.scheduled_for,
+                **(execution.result or {}),
+            }
         except Exception:
             logger.exception("Bulk Plaid sync failed")
             raise HTTPException(status_code=500, detail="Request could not be processed.")

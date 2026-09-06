@@ -371,6 +371,7 @@ class BatchLogResult(BaseModel):
     status: Literal["inserted", "updated", "skipped", "error"]
     log_id: Optional[str] = None
     error: Optional[str] = None
+    was_inserted: Optional[bool] = None
 
 
 class BatchLogsResponse(BaseModel):

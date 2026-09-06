@@ -1,10 +1,14 @@
 /**
  * Stream response helpers for the chat-stream API.
  *
- * Extracted from orchestrator.ts during Phase 5 refactoring.
- * Encapsulates the wire format (conversation ID, text chunks, tool data)
- * and supports both fake-streaming (complete text) and real streaming
- * (async token iterable from OpenAI).
+ * Wire format (line-based, newline-delimited):
+ *   __CONVERSATION_ID__<id>__END_CONVERSATION_ID__
+ *   __STREAM_OPEN__
+ *   __PHASE__{"phase":"context"}__END_PHASE__
+ *   __TOOL__{"event":"start","id":"...","name":"listHabits"}__END_TOOL__
+ *   __PERMISSION__{"event":"ask",...}__END_PERMISSION__
+ *   0:"text chunk"
+ *   __TOOL_DATA__<json>__END_TOOL_DATA__
  */
 
 // ---------------------------------------------------------------------------
@@ -17,17 +21,11 @@ const STREAM_HEADERS = {
   'Connection': 'keep-alive',
 } as const;
 
-/** Number of words per fake-stream chunk */
-const FAKE_STREAM_CHUNK_SIZE = 5;
-
-/** Delay (ms) between fake-stream chunks for perceived streaming feel */
-const FAKE_STREAM_DELAY_MS = 5;
-
 // ---------------------------------------------------------------------------
 // Stream source types
 // ---------------------------------------------------------------------------
 
-/** Pre-computed text that gets drip-fed in word chunks (fake streaming). */
+/** Pre-computed text emitted immediately (no fake drip). */
 export interface CompleteTextSource {
   type: 'complete';
   text: string;
@@ -39,7 +37,141 @@ export interface RealTokenSource {
   tokens: AsyncIterable<string>;
 }
 
-export type StreamSource = CompleteTextSource | RealTokenSource;
+export type ChatStreamPhase = 'context' | 'searching' | 'tool' | 'answering';
+
+export const PHASE_LABELS: Record<ChatStreamPhase, string> = {
+  context: 'Preparing context...',
+  searching: 'Thinking...',
+  tool: 'Fetching data...',
+  answering: 'Writing...',
+};
+
+export type ChatToolStreamEvent = {
+  type: 'tool';
+  event: 'start' | 'result' | 'error';
+  id: string;
+  name: string;
+  label?: string;
+};
+
+export type ChatPermissionStreamEvent = {
+  type: 'permission';
+  event: 'ask';
+  id: string;
+  name: string;
+  scope: string;
+  profile: string;
+};
+
+export type ChatStreamEvent =
+  | { type: 'phase'; phase: ChatStreamPhase; label?: string }
+  | { type: 'text'; text: string }
+  | ChatToolStreamEvent
+  | ChatPermissionStreamEvent;
+
+/** Mixed phase + token stream so the HTTP body can open before model work finishes. */
+export interface EventStreamSource {
+  type: 'events';
+  events: AsyncIterable<ChatStreamEvent>;
+}
+
+export type StreamSource = CompleteTextSource | RealTokenSource | EventStreamSource;
+
+export function formatPhaseLine(phase: ChatStreamPhase, label?: string | null): string {
+  return `__PHASE__${JSON.stringify({ phase, label: label ?? null })}__END_PHASE__`;
+}
+
+export function formatToolLine(event: Omit<ChatToolStreamEvent, 'type'>): string {
+  return `__TOOL__${JSON.stringify(event)}__END_TOOL__`;
+}
+
+export function parseToolLine(line: string): ChatToolStreamEvent | null {
+  const match = line.match(/__TOOL__(.+?)__END_TOOL__/);
+  if (!match) return null;
+  try {
+    const parsed = JSON.parse(match[1]) as { event?: unknown; id?: unknown; name?: unknown; label?: unknown };
+    if (
+      (parsed?.event === 'start' || parsed?.event === 'result' || parsed?.event === 'error')
+      && typeof parsed.id === 'string'
+      && typeof parsed.name === 'string'
+    ) {
+      return {
+        type: 'tool',
+        event: parsed.event,
+        id: parsed.id,
+        name: parsed.name,
+        label: typeof parsed.label === 'string' ? parsed.label : undefined,
+      };
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+export function formatPermissionLine(event: Omit<ChatPermissionStreamEvent, 'type'>): string {
+  return `__PERMISSION__${JSON.stringify(event)}__END_PERMISSION__`;
+}
+
+export function parsePermissionLine(line: string): ChatPermissionStreamEvent | null {
+  const match = line.match(/__PERMISSION__(.+?)__END_PERMISSION__/);
+  if (!match) return null;
+  try {
+    const parsed = JSON.parse(match[1]) as {
+      event?: unknown;
+      id?: unknown;
+      name?: unknown;
+      scope?: unknown;
+      profile?: unknown;
+    };
+    if (
+      parsed?.event === 'ask'
+      && typeof parsed.id === 'string'
+      && typeof parsed.name === 'string'
+      && typeof parsed.scope === 'string'
+      && typeof parsed.profile === 'string'
+    ) {
+      return {
+        type: 'permission',
+        event: 'ask',
+        id: parsed.id,
+        name: parsed.name,
+        scope: parsed.scope,
+        profile: parsed.profile,
+      };
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+export function parsePhaseLine(line: string): { phase: ChatStreamPhase; label: string | null } | null {
+  const match = line.match(/__PHASE__(.+?)__END_PHASE__/);
+  if (!match) return null;
+  try {
+    const parsed = JSON.parse(match[1]) as { phase?: unknown; label?: unknown };
+    if (
+      parsed?.phase === 'context'
+      || parsed?.phase === 'searching'
+      || parsed?.phase === 'tool'
+      || parsed?.phase === 'answering'
+    ) {
+      return {
+        phase: parsed.phase,
+        label: typeof parsed.label === 'string' && parsed.label.trim() ? parsed.label : null,
+      };
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+export function labelForChatPhase(phase: ChatStreamPhase, label?: string | null): string {
+  if (label && label.trim()) return label;
+  return PHASE_LABELS[phase];
+}
 
 // ---------------------------------------------------------------------------
 // Options for creating a chat stream response
@@ -60,9 +192,12 @@ export interface ChatStreamResponseOptions {
   prefaceLine?: string;
   /**
    * Called once the full text is available (after streaming completes).
-   * Use for fire-and-forget persistence.
+   * Persistence should finish before the stream is closed.
    */
-  onComplete?: (fullText: string, canvasToolPayload: Record<string, unknown> | null) => void;
+  onComplete?: (
+    fullText: string,
+    canvasToolPayload: Record<string, unknown> | null,
+  ) => void | Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -74,6 +209,8 @@ export interface ChatStreamResponseOptions {
  *
  * Wire format (line-based, newline-delimited):
  *   __CONVERSATION_ID__<id>__END_CONVERSATION_ID__   (first line, optional)
+ *   __STREAM_OPEN__                                   (optional flush preface)
+ *   __PHASE__{"phase":"context"}__END_PHASE__         (optional progress)
  *   0:"text chunk"                                    (JSON-encoded text deltas)
  *   __TOOL_DATA__<json>__END_TOOL_DATA__              (last line, optional)
  */
@@ -127,14 +264,37 @@ export function createChatStreamResponse(options: ChatStreamResponseOptions): Re
       let fullText: string;
 
       if (options.source.type === 'complete') {
-        // Fake-stream: drip-feed pre-computed text in word chunks
         fullText = options.source.text;
-        const words = fullText.split(' ');
-        for (let i = 0; i < words.length; i += FAKE_STREAM_CHUNK_SIZE) {
-          const chunkWords = words.slice(i, i + FAKE_STREAM_CHUNK_SIZE);
-          const chunk = (i === 0 ? '' : ' ') + chunkWords.join(' ');
-          controller.enqueue(encoder.encode(`0:${JSON.stringify(chunk)}\n`));
-          await new Promise((resolve) => setTimeout(resolve, FAKE_STREAM_DELAY_MS));
+        enqueueLine(`0:${JSON.stringify(fullText)}`);
+      } else if (options.source.type === 'events') {
+        fullText = '';
+        for await (const event of options.source.events) {
+          if (event.type === 'phase') {
+            enqueueLine(formatPhaseLine(event.phase, event.label));
+            continue;
+          }
+          if (event.type === 'tool') {
+            enqueueLine(formatToolLine({
+              event: event.event,
+              id: event.id,
+              name: event.name,
+              label: event.label,
+            }));
+            continue;
+          }
+          if (event.type === 'permission') {
+            enqueueLine(formatPermissionLine({
+              event: event.event,
+              id: event.id,
+              name: event.name,
+              scope: event.scope,
+              profile: event.profile,
+            }));
+            continue;
+          }
+          if (!event.text) continue;
+          fullText += event.text;
+          enqueueLine(`0:${JSON.stringify(event.text)}`);
         }
       } else {
         // Real-stream: forward tokens from an async iterable as they arrive
@@ -150,7 +310,7 @@ export function createChatStreamResponse(options: ChatStreamResponseOptions): Re
 
       // 5. Notify caller with full text (for persistence)
       if (options.onComplete) {
-        options.onComplete(fullText, finalCanvasToolPayload);
+        await options.onComplete(fullText, finalCanvasToolPayload);
       }
 
       controller.close();

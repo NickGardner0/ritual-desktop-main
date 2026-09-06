@@ -10,29 +10,30 @@ jobs:
   quality:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      DATABASE_URL: "libsql://ci.turso.io?authToken=test"
+      RITUAL_DB_LOCAL_ONLY: "1"
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "22"
           cache: "npm"
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
-          python-version: "3.12"
-
-      - name: Install backend Python dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r apps/backend/requirements.txt
+          python-version: "3.12.12"
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@87eb139fed4b08a67bd1fa429a21d1f5d523e03e # 1.92.0
+
+      - name: Install pinned LOC audit tool
+        run: cargo install tokei --version 14.0.0 --locked
 
       # Using npm install (not npm ci) during migration while lockfile/workspaces
       # are being normalized in-repo.
@@ -42,6 +43,14 @@ jobs:
 
       - name: Check repository structure
         run: npm run repo:check
+        env:
+          RITUAL_DASHBOARD_FILE_LINE_BUDGET: "800"
+
+      - name: Verify canonical authored-production LOC
+        run: npm run audit:loc:check
+
+      - name: Check API client boundary
+        run: npm run repo:check:api-client-boundary
 
       - name: Typecheck shared contracts
         run: npm run contracts:typecheck
@@ -56,13 +65,52 @@ jobs:
         run: npm run --workspace @ritual/chat-runtime test
 
       - name: Python backend compile check
-        run: python -m compileall -q apps/backend
+        run: npm run backend:compile
 
-      - name: Python backend project-time tests
-        run: PYTHONPATH=apps/backend pytest -q apps/backend/tests/test_project_time_service.py apps/backend/tests/test_turso_user_service.py
+      - name: Python backend full test suite
+        run: npm run backend:test
 
-      - name: Python backend architecture boundary tests
-        run: PYTHONPATH=apps/backend pytest -q apps/backend/tests/test_wearable_provider_sync_registry.py apps/backend/tests/test_wearable_provider_pipeline.py apps/backend/tests/test_sync_job_registry.py
+      - name: Rust database check
+        working-directory: apps/desktop/src-tauri/crates/ritual-db
+        run: cargo check
 
-      - name: Rust desktop check
-        run: cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml --locked
+      - name: Dashboard unit tests
+        run: npm run test:dashboard
+
+      - name: Build desktop UI
+        run: npm run --workspace @ritual/desktop-ui build
+
+  desktop-rust:
+    runs-on: macos-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@87eb139fed4b08a67bd1fa429a21d1f5d523e03e # 1.92.0
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund --legacy-peer-deps
+
+      - name: Build pinned agent sidecar
+        run: npm run build:chat-runtime && npm run desktop:pin:agent
+
+      - name: Rust watcher check
+        working-directory: apps/desktop/src-tauri/bin/ritual-watcher
+        run: cargo check
+
+      - name: Rust watcher tests
+        working-directory: apps/desktop/src-tauri/bin/ritual-watcher
+        run: cargo test
+
+      - name: Rust desktop RSS and orphan-sidecar tests
+        working-directory: apps/desktop/src-tauri
+        run: cargo test --bin app "parses_ps_rss_kilobytes_into_bytes|orphan_sidecar_parser_matches_only_the_requested_device|loopback_backend_base|consume_url_stays_on_hosted_next_origin|hosted_origin_rejects_local_spa_origins"

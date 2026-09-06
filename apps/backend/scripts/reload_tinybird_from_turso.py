@@ -16,8 +16,10 @@ def reload_all_logs():
     print("🔄 Starting reload of all habit logs from Turso to Tinybird...")
     
     # Get Tinybird API key
-    TINYBIRD_API_KEY = os.getenv('TINYBIRD_API_KEY', 'p.eyJ1IjogIjljMTA0NGJhLTM5NjAtNDZkOS1iMWQ5LTAyY2Q2OTc5ZDVlOSIsICJpZCI6ICJkNDljMDRjZC02NjExLTQ0OTYtYjQ1Ni01MzA4YzE0ZmU4MjQiLCAiaG9zdCI6ICJ1cy1lYXN0LWF3cyJ9.0ndUf7N3CMNLNt193uXYhMgVwZCmnYQ1vtuY0vQ8qo8')
+    TINYBIRD_API_KEY = (os.getenv('TINYBIRD_API_KEY') or os.getenv('TINYBIRD_TOKEN') or '').strip()
     TINYBIRD_API_URL = 'https://api.us-east.aws.tinybird.co'
+    if not TINYBIRD_API_KEY:
+        raise RuntimeError("TINYBIRD_API_KEY or TINYBIRD_TOKEN is required")
     
     # Connect to local Turso replica
     db_path = Path(__file__).parent.parent / '.turso_replica.db'
@@ -119,4 +121,3 @@ def reload_all_logs():
 
 if __name__ == "__main__":
     reload_all_logs()
-

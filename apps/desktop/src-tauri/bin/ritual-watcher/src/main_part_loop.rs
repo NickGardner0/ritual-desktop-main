@@ -310,7 +310,10 @@ fn run_watcher_loop(
                     if !should_process {
                         continue;
                     }
-                    debug!("🔔 Processing app-switch notification at {}ms", event.timestamp_ms);
+                    debug!(
+                        "🔔 Processing app-switch notification at {}ms",
+                        event.timestamp_ms
+                    );
                     last_notification_event_ms = Some(event.timestamp_ms);
                     triggered = true;
                 }
@@ -764,13 +767,8 @@ fn run_watcher_loop(
                                     }
                                 }
 
-                                // Periodic sync for long sessions
                                 if should_commit {
-                                    if let Some(ref sq) = sync_queue {
-                                        if let Err(e) = sq.queue_activity_update(event_id, now) {
-                                            debug!("Failed to queue activity for sync: {}", e);
-                                        }
-                                    }
+                                    // The activity_events update trigger is the sole enqueue authority.
                                     last_commit_time = now;
                                 }
                             }

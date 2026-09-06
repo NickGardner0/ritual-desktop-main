@@ -1,264 +1,262 @@
-# Dev To Production Workflow
+# Ritual Development And Preview Workflow
 
-This is the practical workflow for building Ritual quickly without constantly deploying directly to production.
+This guide explains how to implement and inspect Ritual frontend, backend, and desktop changes quickly without publishing a signed macOS release for every iteration.
 
-Use this document when you want to:
+## Purpose
 
-- build features fast in local dev
-- test desktop behavior before production
-- use preview deployments instead of touching production for every change
-- understand when a Vercel deploy is enough versus when a new desktop release is required
+Use **Ritual Dev** as the everyday desktop development environment. It runs the real Tauri shell against the local Vite SPA, preserves a separate development profile, and applies most React and CSS edits through Vite hot module replacement (HMR).
 
-## Core Rule
+A signed desktop release is a distribution step, not a preview step. You do not need one to build, inspect, or validate changes locally.
 
-Do not use production as your main development environment.
+One important boundary remains: Ritual currently bundles the Vite SPA inside the desktop application. Frontend changes therefore require a new desktop release when they are ready to reach installed production users, even when no Rust code changed. HMR removes that cost during development; it does not remotely update an already installed production app.
 
-The default path should be:
+## Current Architecture
 
-1. build locally
-2. validate locally
-3. use preview deployments when needed
-4. promote to production only when the feature is ready
+| Layer | Location | Development server | Production delivery |
+| --- | --- | --- | --- |
+| Desktop SPA | `apps/desktop-ui` plus shared modules from `apps/dashboard` | Vite on `127.0.0.1:1420` | Bundled in the signed Tauri app |
+| Browser dashboard | `apps/dashboard` | Next.js on `localhost:3000` | Hosted web deployment |
+| API | `apps/backend` | FastAPI on `localhost:8000` | Railway |
+| Native shell | `apps/desktop/src-tauri` | Tauri development process | Signed and notarized macOS release |
+| Agent and chat runtime | `apps/agent`, `apps/chat-runtime` | Built before the desktop shell starts | Bundled sidecar/runtime assets |
 
-That keeps Vercel and Railway deploys reserved for validation and release, not for everyday iteration.
+The desktop app is not a wrapper around the hosted dashboard. Its production frontend is the output of `apps/desktop-ui`, and that Vite app reuses selected dashboard components and clients through aliases and adapters.
 
-## Architecture
+## Default Everyday Loop
 
-Ritual desktop is split into three moving parts:
+From the repository root:
 
-- Hosted dashboard UI on `https://desktop.ritualdb.com`
-- Hosted backend API on Railway
-- Native macOS Tauri shell distributed separately through GitHub Releases
+```bash
+npm install
+npm run tauri:dev
+```
 
-That means different kinds of changes ship in different ways.
+This starts:
 
-## Fastest Local Development Loop
+- the app named **Ritual Dev**
+- the development Tauri shell
+- the desktop Vite server on port `1420`
+- the prerequisite agent and chat-runtime builds
 
-### Frontend only
+Keep that terminal running. Edit React, TypeScript, or CSS in `apps/desktop-ui` or the dashboard modules it imports. Vite should update the open Ritual Dev window immediately; a full desktop rebuild or release is unnecessary.
 
-Run the dashboard locally:
+### Development identity and sign-in
+
+Ritual deliberately isolates desktop channels:
+
+| Channel | App name | Bundle identifier | Local data root |
+| --- | --- | --- | --- |
+| Production | Ritual | `com.ritual.desktop` | `~/.ritual` |
+| QA | Ritual QA | `com.ritual.desktop.qa` | `~/.ritual-qa` |
+| Development | Ritual Dev | `com.ritual.desktop.dev` | `~/.ritual-dev` |
+
+Ritual Dev may ask you to sign in once even if the production Ritual app is already signed in. That is expected isolation, not a production logout. Keep the same Ritual Dev process open during a work session so HMR does not interrupt that session.
+
+## Workflow By Change Type
+
+### Desktop frontend only
+
+Examples include calendar layout, navigation, React state, styling, and desktop adapters.
+
+```bash
+npm run tauri:dev
+```
+
+Edit and save. Use the open Ritual Dev window as the source of truth because the desktop SPA has Tauri-specific adapters that a browser-only preview does not exercise.
+
+If a change is not reflected, first restart only the Vite/Tauri development process. Do not cut a release to test it.
+
+### Browser dashboard only
+
+For a route that belongs to the hosted Next.js dashboard:
 
 ```bash
 npm run dev
 ```
 
-This serves the UI on `http://localhost:3000`.
+Open `http://localhost:3000`. A hosted dashboard deployment can ship independently when the changed code is not also bundled into the desktop SPA.
 
-### Backend only
+### Desktop frontend with the hosted API
 
-Run the backend locally:
+For most UI work, simply run:
+
+```bash
+npm run tauri:dev
+```
+
+The development app can use the configured hosted services. Treat data mutations carefully because a local frontend can still point at real hosted data.
+
+### Desktop frontend with a local backend
+
+Use two terminals.
+
+Terminal 1:
 
 ```bash
 npm run dev:backend
 ```
 
-This serves the backend on `http://localhost:8000`.
-
-### Desktop + local UI
-
-Run the desktop shell against local frontend:
+Terminal 2:
 
 ```bash
-npm run desktop
+NEXT_PUBLIC_PYTHON_API_URL=http://127.0.0.1:8000 \
+VITE_PYTHON_API_URL=http://127.0.0.1:8000 \
+npm run tauri:dev
 ```
 
-or, if you want a clean local desktop session:
+FastAPI reloads Python edits. Vite hot-reloads frontend edits. Restart the relevant process only when a changed configuration, generated artifact, or compiled sidecar cannot be hot-reloaded.
+
+### API contract or schema change
+
+When backend types or OpenAPI behavior change, update generated artifacts before judging the frontend:
 
 ```bash
-npm run desktop:fresh
+npm run api:openapi
+npm run api:generate-client
+npm run contracts:build
 ```
 
-In debug mode, the desktop shell defaults to `http://localhost:3000`, so local desktop development should not require any Vercel deploy.
+Then restart the frontend process if the generated client is not picked up automatically.
 
-## Best Workflow By Change Type
+### Shared package, agent, or chat-runtime change
 
-### 1. Web-only change
-
-Examples:
-
-- layout tweaks
-- auth page changes
-- analytics/dashboard rendering
-- integrations page UI
-- backend-independent frontend logic
-
-Recommended workflow:
-
-1. build locally with `npm run dev`
-2. validate in local browser
-3. validate in local desktop with `npm run desktop`
-4. push a branch
-5. review the Vercel preview deploy
-6. merge to production when ready
-
-You do not need a new desktop build for web-only changes.
-
-### 2. Backend-only change
-
-Examples:
-
-- FastAPI endpoints
-- sync logic
-- database writes
-- integration token handling
-
-Recommended workflow:
-
-1. run backend locally with `npm run dev:backend`
-2. test frontend locally against local backend
-3. only deploy to Railway when the backend change is ready
-
-If the change is large or risky, create a separate Railway staging service instead of repeatedly deploying production.
-
-### 3. Desktop/native change
-
-Examples:
-
-- Tauri/Rust changes
-- tray behavior
-- updater behavior
-- native watcher changes
-- deep links
-- permissions
-- window behavior
-
-Recommended workflow:
-
-1. validate locally with `npm run desktop`
-2. if needed, run local production-like validation with:
+Some dependencies are compiled before the desktop app starts rather than watched by Vite:
 
 ```bash
-npm run desktop:prod
+npm run contracts:build
+npm run build:chat-runtime
+npm run build:agent
 ```
 
-3. when ready, build a new desktop release
-4. publish a new GitHub Release so installed apps can update
+Restart `npm run tauri:dev` after these builds when necessary. This is still a local development rebuild, not a signed desktop release.
 
-Web deploys alone do not ship native changes.
+### Rust, Tauri configuration, sidecar, or native capability change
 
-### 4. Mixed change
-
-Examples:
-
-- web UI depends on a new Tauri command
-- hosted app expects new native updater/runtime behavior
-- integrations UI depends on new native watcher capabilities
-
-Recommended workflow:
-
-1. build and test locally first
-2. ship the new desktop release first
-3. let users update
-4. then deploy the hosted frontend/backend change
-
-If the web app requires the new shell, use the compatibility gate only after the compatible desktop build has already shipped.
-
-## How To Use Preview Deployments Without Touching Production
-
-### Frontend preview
-
-Push a branch and let Vercel build a preview deployment.
-
-You can test the desktop shell against a preview URL by overriding the app URL when launching the desktop app:
+Continue to use:
 
 ```bash
-RITUAL_APP_URL="https://your-preview-url.vercel.app" npm run desktop
+npm run tauri:dev
 ```
 
-or for a production-style local run:
+Tauri/Cargo recompiles native changes locally. These changes require a signed desktop release only when they are ready to be distributed to other installed apps.
+
+## What Updates Without A Release
+
+| Change | Local preview | What normally refreshes | Release needed for production users? |
+| --- | --- | --- | --- |
+| Desktop React/CSS | `npm run tauri:dev` | Vite HMR | Yes, because the SPA is bundled |
+| Next.js-only page | `npm run dev` | Next.js Fast Refresh | No desktop release; deploy the web app |
+| FastAPI implementation | `npm run dev:backend` | Uvicorn reload | No desktop release if the API remains compatible |
+| Generated API client/contracts | Regenerate, then run Ritual Dev | Often requires process restart | Only if the bundled desktop client changed |
+| Agent/chat runtime | Rebuild package, restart Ritual Dev | Process restart | Yes when bundled behavior changes |
+| Rust/Tauri/native shell | `npm run tauri:dev` | Cargo/Tauri rebuild | Yes |
+
+## Validation Before Sharing Changes
+
+Choose checks that match the changed layer.
+
+Desktop frontend:
 
 ```bash
-RITUAL_APP_URL="https://your-preview-url.vercel.app" npm run desktop:prod
+npm run --workspace @ritual/desktop-ui typecheck
+npm run test:dashboard
 ```
 
-This is the safest way to test hosted frontend changes without changing `desktop.ritualdb.com`.
-
-### Backend preview
-
-There is no free instant preview environment for Railway by default in this repo. For fast iteration:
-
-- use local backend for most work
-- reserve Railway production for finalized backend changes
-- if backend changes are frequent and risky, create a dedicated staging Railway service
-
-## Recommended Release Policy
-
-### During active feature work
-
-- stay local by default
-- use Vercel preview for frontend review
-- avoid Railway production until the backend change is ready
-- avoid rebuilding the desktop app unless the change is actually native
-
-### When promoting to production
-
-- web-only change: deploy Vercel
-- backend-only change: deploy Railway
-- native change: publish a new desktop release
-- mixed change: desktop release first, then Vercel/Railway
-
-## Current Desktop Release Reality
-
-Today, the standard desktop release path is:
-
-1. bump the desktop version in [apps/desktop/src-tauri/tauri.conf.json](/Users/nickgardner/Desktop/ritual-desktop-main/apps/desktop/src-tauri/tauri.conf.json) and [apps/desktop/src-tauri/Cargo.toml](/Users/nickgardner/Desktop/ritual-desktop-main/apps/desktop/src-tauri/Cargo.toml)
-2. push a matching desktop tag such as `v0.1.53`
-3. let [desktop-release.yml](/Users/nickgardner/Desktop/ritual-desktop-main/.github/workflows/desktop-release.yml) build, notarize, sign updater artifacts, and publish the artifacts to `NickGardner0/ritual-desktop-releases`
-4. validate the published updater feed and run the packaged smoke checklist
-
-Local fallback exists only for CI outages, release recovery, or intentional workstation-driven publishing:
+Broader TypeScript changes:
 
 ```bash
-unset TAURI_PRIVATE_KEY TAURI_KEY_PATH TAURI_KEY_PASSWORD
-export TAURI_SIGNING_PRIVATE_KEY_PATH="$HOME/.ritual-secrets/ritual-updater.key"
-export TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""
-npm run desktop:release:preflight
-npm run desktop:release:mac
-bash scripts/publish-desktop-release-assets.sh v0.1.53
+npm run typecheck
 ```
 
-Do not treat the local fallback as the default release path now that the GitHub Actions workflow is healthy again.
+Backend:
 
-## Current Release Artifacts
+```bash
+npm run backend:compile
+npm run backend:test
+```
 
-For each desktop release, upload these files:
+For focused backend tests, use the repository test wrapper described in `apps/backend/README.md` so the locked Python 3.12 environment is preserved.
 
-- DMG
-- updater tarball
-- updater signature
-- app zip
-- `latest.json`
+Repository-wide structural check:
 
-For example, for `0.1.1`:
+```bash
+npm run repo:check
+```
 
-- `apps/desktop/src-tauri/target/release/bundle/dmg/ritual-desktop_0.1.1_aarch64.dmg`
-- `apps/desktop/src-tauri/target/release/bundle/macos/ritual-desktop.app.tar.gz`
-- `apps/desktop/src-tauri/target/release/bundle/macos/ritual-desktop.app.tar.gz.sig`
-- `apps/desktop/src-tauri/target/release/bundle/macos/ritual-desktop.app.zip`
-- `apps/desktop/src-tauri/target/release/bundle/macos/latest.json`
+Validation and release are separate decisions. Passing tests does not require publishing a release.
 
-## Safe Day-To-Day Workflow
+## Release Decision
 
-Use this as the default:
+Do **not** cut a desktop release merely to see a change. Cut one when a tested bundle is ready to reach production desktop users.
 
-1. work on a feature branch
-2. run frontend locally
-3. run backend locally when needed
-4. run desktop locally when the feature touches desktop behavior
-5. push branch and review Vercel preview
-6. only then deploy to production
-7. only build a new desktop release if native code changed
+| Changed surface | How to preview | How to ship |
+| --- | --- | --- |
+| Next.js-only web code | Local Next.js / hosted preview | Web deployment |
+| Compatible FastAPI-only code | Local FastAPI | Railway deployment |
+| Desktop Vite SPA code | Ritual Dev with HMR | Signed desktop release |
+| Rust/Tauri code | Ritual Dev with local native rebuild | Signed desktop release |
+| Both backend and desktop client | Run both locally | Deploy in a compatibility-safe order, then release desktop |
 
-## Anti-Patterns To Avoid
+The key distinction is **iteration versus distribution**: frontend-only desktop work is fast and release-free during implementation, but the final bundled assets still need a desktop release to replace assets already installed on users' Macs.
 
-- changing Vercel production for every small frontend experiment
-- changing Railway production for every backend experiment
-- rebuilding the desktop app for web-only changes
-- shipping a hosted web deploy that assumes a newer shell before the desktop release is out
-- treating production as the primary place to test new work
+## Suggested Commit And Review Loop
 
-## Related Docs
+1. Start Ritual Dev once with `npm run tauri:dev`.
+2. Implement the smallest coherent change and inspect it through HMR.
+3. Run layer-specific checks.
+4. Commit and push the change for source review.
+5. Continue iterating in Ritual Dev; several commits can accumulate without a release.
+6. Cut one signed desktop release after the collection is stable and ready for users.
 
-- [docs/desktop-release-playbook.md](/Users/nickgardner/Desktop/ritual-desktop-main/docs/desktop-release-playbook.md)
-- [docs/desktop-github-releases.md](/Users/nickgardner/Desktop/ritual-desktop-main/docs/desktop-github-releases.md)
-- [docs/desktop-release-smoke-checklist.md](/Users/nickgardner/Desktop/ritual-desktop-main/docs/desktop-release-smoke-checklist.md)
+Pushing to GitHub does not update an installed Ritual app by itself. The open Ritual Dev app displays the local working tree, so it can show uncommitted and newly committed changes immediately without downloading anything from GitHub.
+
+## Troubleshooting
+
+### Ritual Dev asks for sign-in
+
+Development, QA, and production use separate bundle identifiers and data directories. Sign in to Ritual Dev once; do not clear its data between ordinary sessions.
+
+### The installed Ritual app still looks old
+
+That app contains the frontend assets from its last signed release. Open Ritual Dev to inspect current source changes. The production app will change only after installing an update containing the new bundle.
+
+### A saved frontend file does not update
+
+- confirm `npm run tauri:dev` is still running
+- confirm the edit belongs to `apps/desktop-ui` or a module imported by it
+- check the Vite terminal for a compile error
+- restart Ritual Dev if a generated package or adapter changed
+
+### Port 1420 is already in use
+
+Find the stale development process:
+
+```bash
+lsof -nP -iTCP:1420 -sTCP:LISTEN
+```
+
+Stop that specific process, then run `npm run tauri:dev` again.
+
+### Backend edits do not appear
+
+Confirm the backend is listening on port `8000` and that both API URL variables were set in the terminal that launched Ritual Dev. Restart Ritual Dev after changing environment variables.
+
+## Production Promotion
+
+When a group of desktop changes is ready:
+
+1. run the appropriate frontend, backend, and packaged-app checks
+2. bump the desktop version
+3. create and push the matching desktop release tag
+4. let the desktop release workflow build, sign, notarize, and publish the artifacts
+5. smoke-test the packaged app and updater feed
+
+Follow `docs/desktop-release-playbook.md` for the release procedure. The normal development loop in this guide should happen many times before that production promotion step.
+
+## Related Documentation
+
+- `docs/desktop-release-playbook.md`
+- `docs/desktop-release-workflow.md`
+- `docs/release-operations.md`
+- `docs/api-client-regeneration.md`
+- `apps/backend/README.md`

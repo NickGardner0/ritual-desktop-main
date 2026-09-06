@@ -7,11 +7,6 @@
 
 import { fetchPythonApi, fetchPythonApiPost } from './shared-api.js';
 
-function getInternalUserId(token: string): string | null {
-  const sep = token.indexOf('::');
-  return sep === -1 ? null : token.slice(sep + 2) || null;
-}
-
 function getLocalDateString(timezone?: string): string {
   try {
     const formatter = new Intl.DateTimeFormat('en-CA', {
@@ -418,12 +413,39 @@ export async function executeGetStreaks(token: string, params: {
 // executeLogHabit
 // ---------------------------------------------------------------------------
 
+async function resolveConversationId(ctx?: {
+  conversationId?: string | null;
+  conversationIdPromise?: Promise<string | null>;
+  clientEventId?: string;
+}): Promise<string | null> {
+  if (ctx?.conversationId) return ctx.conversationId;
+  if (ctx?.conversationIdPromise) {
+    try {
+      return (await ctx.conversationIdPromise) || null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+function newClientEventId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `evt_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
 export async function executeLogHabit(token: string, params: {
   habitName: string;
   amount?: number;
   unitType?: string;
   note?: string;
-}, timezone?: string) {
+}, timezone?: string, conversationCtx?: {
+  conversationId?: string | null;
+  conversationIdPromise?: Promise<string | null>;
+  clientEventId?: string;
+}) {
   console.log('📝 logHabit called:', params);
 
   try {
@@ -461,9 +483,16 @@ export async function executeLogHabit(token: string, params: {
 
     // Step 3: Log the entry
     const today = getLocalDateString(timezone);
+    const clientEventId = conversationCtx?.clientEventId || newClientEventId();
+    const conversationId = await resolveConversationId(conversationCtx);
     const logBody: Record<string, unknown> = {
       date: today,
       status: 'completed',
+      client_event_id: clientEventId,
+      source: 'ai_chat',
+      actor_type: 'assistant',
+      actor_ref: conversationId,
+      conversation_id: conversationId,
     };
     if (normalized.amount !== undefined && normalized.amount !== null) {
       logBody.amount = normalized.amount;
@@ -478,37 +507,8 @@ export async function executeLogHabit(token: string, params: {
       logBody,
     );
 
-    let smsConfirmation = `Logged ${matched.name}${normalized.amount !== undefined && normalized.amount !== null ? `: ${normalized.amount}${matched.unit_type ? ` ${matched.unit_type}` : ''}` : ''}.`;
-    let smsConfirmationMeta: Record<string, unknown> | null = null;
-
-    const internalUserId = getInternalUserId(token);
-    const internalApiKey = process.env.INTERNAL_API_KEY || '';
-    if (internalUserId && internalApiKey) {
-      try {
-        const confirmation = await fetchPythonApiPost(
-          '/api/internal/sms-copilot/log-confirmation',
-          token,
-          {
-            user_id: internalUserId,
-            habit_id: matched.id,
-            amount: normalized.amount ?? null,
-            note: params.note,
-            logged_at: new Date().toISOString(),
-          },
-          {
-            extraHeaders: {
-              'X-Internal-Key': internalApiKey,
-            },
-          },
-        );
-        if (confirmation?.success && typeof confirmation.message === 'string' && confirmation.message.trim()) {
-          smsConfirmation = confirmation.message.trim();
-          smsConfirmationMeta = confirmation.metrics || null;
-        }
-      } catch (error) {
-        console.warn('⚠️ sms log confirmation enrichment failed:', error);
-      }
-    }
+    const receiptId = result?.receipt_id ?? null;
+    const wasInserted = result?.was_inserted !== false;
 
     return JSON.stringify({
       success: true,
@@ -517,8 +517,17 @@ export async function executeLogHabit(token: string, params: {
       amount: normalized.amount ?? null,
       date: today,
       log: result,
-      sms_confirmation: smsConfirmation,
-      sms_confirmation_meta: smsConfirmationMeta,
+      was_inserted: wasInserted,
+      receipt: receiptId
+        ? {
+            receipt_id: receiptId,
+            was_inserted: wasInserted,
+            undoable: true,
+            habit_id: matched.id,
+            habit_name: matched.name,
+            log_id: result?.id ?? null,
+          }
+        : null,
     });
   } catch (error) {
     console.error('❌ logHabit error:', error);
@@ -534,21 +543,34 @@ export async function executeCreateHabit(token: string, params: {
   name: string;
   category: string;
   unitType?: string;
+}, conversationCtx?: {
+  conversationId?: string | null;
+  conversationIdPromise?: Promise<string | null>;
+  clientEventId?: string;
 }) {
   console.log('➕ createHabit called:', params);
 
   try {
+    const clientEventId = conversationCtx?.clientEventId || newClientEventId();
+    const conversationId = await resolveConversationId(conversationCtx);
     const body: Record<string, unknown> = {
       name: params.name,
       category: params.category,
       is_custom: true,
       sensor_type: 'Manual',
+      client_event_id: clientEventId,
+      source: 'ai_chat',
+      actor_type: 'assistant',
+      actor_ref: conversationId,
+      conversation_id: conversationId,
     };
     if (params.unitType) {
       body.unit_type = params.unitType;
     }
 
     const result = await fetchPythonApiPost('/api/habits', token, body);
+    const receiptId = result?.receipt_id ?? null;
+    const wasInserted = result?.was_inserted !== false;
 
     return JSON.stringify({
       success: true,
@@ -556,6 +578,16 @@ export async function executeCreateHabit(token: string, params: {
       habit_id: result.id,
       category: result.category,
       unit_type: result.unit_type || null,
+      was_inserted: wasInserted,
+      receipt: receiptId
+        ? {
+            receipt_id: receiptId,
+            was_inserted: wasInserted,
+            undoable: true,
+            habit_id: result.id,
+            habit_name: result.name,
+          }
+        : null,
       message: `Created new habit "${result.name}"`,
     });
   } catch (error) {

@@ -2,15 +2,11 @@
 
 from __future__ import annotations
 
-import logging
 import os
 from typing import List, Optional
 
 from fastapi import Header, HTTPException, Request
 from pydantic import BaseModel
-
-logger = logging.getLogger(__name__)
-
 
 class DeviceRegisterRequest(BaseModel):
     device_name: str = "My Mac"
@@ -99,25 +95,12 @@ async def get_current_user(
     """
     Get current user from either:
     1. X-User-ID header (trusted service-to-service only with internal key)
-    2. JWT Bearer token (direct API calls)
+    2. The canonical JWT dependency installed by api.watcher.include_watcher_router
     """
     if x_user_id:
         expected_internal_key = os.getenv("INTERNAL_API_KEY")
         if not expected_internal_key or internal_key != expected_internal_key:
             raise HTTPException(status_code=401, detail="Authentication required")
         return {"id": x_user_id, "email": None}
-
-    try:
-        from main import get_current_user as jwt_auth
-        from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-
-        security = HTTPBearer(auto_error=False)
-        auth_header = request.headers.get("Authorization")
-        if auth_header and auth_header.startswith("Bearer "):
-            token = auth_header[7:]
-            credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
-            return await jwt_auth(request, credentials)
-    except Exception:
-        logger.exception("Watcher JWT auth fallback failed")
 
     raise HTTPException(status_code=401, detail="Authentication required")

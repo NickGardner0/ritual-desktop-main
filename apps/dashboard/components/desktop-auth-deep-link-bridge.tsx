@@ -1,43 +1,91 @@
 'use client';
 
 import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter } from '@/lib/app-navigation';
 
-import { recordDesktopShellEvent } from '@/lib/desktop-bridge/observability';
-import { isTauri } from '@/lib/tauri-utils';
+import { useAuth } from '@/lib/desktop-session';
+
+import {
+  desktopCompleteAuthHandoff,
+  desktopGetAuthToken,
+  getDesktopRuntimeInfo,
+  recordDesktopShellEvent,
+} from '@/lib/native-gateway';
+import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
+import {
+  consumeDesktopAuthHandoff,
+  storePendingDesktopAuthAcknowledgement,
+} from '@/lib/desktop-auth-handoff';
+import {
+  clearFromWelcomeFlow,
+  clearSignUpIntent,
+  markDeviceAuthenticated,
+} from '@/lib/onboarding-flow';
+import { initializeDesktopVault } from '@/lib/privacy/vault-client';
 
 const DESKTOP_AUTH_DEEP_LINK_EVENT = 'desktop://auth-deep-link';
 
-function normalizeDesktopDeepLinkToAppPath(rawUrl: string): string {
+async function completeDesktopAuthDeepLink(rawUrl: string): Promise<string> {
   const parsed = new URL(rawUrl);
-  const protocol = parsed.protocol.toLowerCase();
+  const runtimeInfo = await getDesktopRuntimeInfo();
+  if (!runtimeInfo) throw new Error('Desktop runtime identity is unavailable.');
+  const scheme = parsed.protocol.replace(/:$/, '').toLowerCase();
+  const handoffProtocol = parsed.searchParams.get('protocol');
+  const legacyV1 = !handoffProtocol
+    && runtimeInfo.channel === 'production'
+    && runtimeInfo.capabilities.includes('desktop-auth-handoff-v1');
 
-  if (protocol !== 'ritual:' && protocol !== 'com.ritual.desktop:') {
+  if (
+    scheme !== runtimeInfo.callbackScheme.toLowerCase()
+    && !(legacyV1 && scheme === 'ritual')
+  ) {
     throw new Error(`Unsupported desktop auth protocol: ${parsed.protocol}`);
   }
 
-  const host = parsed.hostname.trim();
-  const path = parsed.pathname.replace(/^\/+/, '');
-  const route = `/${[host, path].filter(Boolean).join('/')}`;
-
-  if (route === '/') {
-    throw new Error('Desktop auth deep link did not include a target route.');
+  const ticket = parsed.searchParams.get('ticket')?.trim() || '';
+  if (legacyV1) {
+    if (!ticket) throw new Error('Legacy desktop authentication callback is missing its ticket.');
+    throw new Error('Legacy desktop authentication tickets cannot sign in the local SPA.');
   }
 
-  return `${route}${parsed.search}`;
+  const handoffId = parsed.searchParams.get('handoff_id')?.trim() || '';
+  const nonce = parsed.searchParams.get('nonce')?.trim() || '';
+  const channel = parsed.searchParams.get('channel');
+  if (
+    !handoffId || !nonce || ticket || handoffProtocol !== '2'
+    || channel !== runtimeInfo.channel
+    || runtimeInfo.handoffProtocol !== '2'
+  ) {
+    throw new Error('Desktop authentication handoff identity does not match this app.');
+  }
+  await consumeDesktopAuthHandoff({
+    handoffId,
+    nonce,
+    channel: runtimeInfo.channel,
+    protocol: '2',
+    runtimeInfo,
+  });
+  await desktopCompleteAuthHandoff(handoffId);
+  storePendingDesktopAuthAcknowledgement(handoffId);
+  return '/dashboard';
 }
 
 export function DesktopAuthDeepLinkBridge() {
+  const { isDesktop } = useDesktopCapabilities();
+  const { getToken } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
-    if (!isTauri()) {
+    if (!isDesktop) {
       return;
     }
 
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
-      if (params.get('ritual_sidebar_window') === '1') {
+      if (
+        params.get('ritual_sidebar_window') === '1'
+        || params.get('ritual_settings_window') === '1'
+      ) {
         return;
       }
     }
@@ -47,7 +95,15 @@ export function DesktopAuthDeepLinkBridge() {
 
     const handleDesktopDeepLink = async (rawUrl: string) => {
       try {
-        const nextPath = normalizeDesktopDeepLinkToAppPath(rawUrl);
+        const nextPath = await completeDesktopAuthDeepLink(rawUrl);
+        await getToken();
+        markDeviceAuthenticated();
+        clearFromWelcomeFlow();
+        clearSignUpIntent();
+        const session = await desktopGetAuthToken({ refresh: false });
+        if (session?.userId) {
+          void initializeDesktopVault(session.userId);
+        }
         void recordDesktopShellEvent('desktop.auth_deep_link.received', 'info', {
           nextPath,
         });
@@ -88,7 +144,7 @@ export function DesktopAuthDeepLinkBridge() {
         unlisten();
       }
     };
-  }, [router]);
+  }, [getToken, isDesktop, router]);
 
   return null;
 }

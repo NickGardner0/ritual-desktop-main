@@ -31,6 +31,7 @@ pub mod activity;
 pub mod activity_classifier;
 pub mod blocking;
 pub mod context;
+pub mod delivery_outbox;
 pub mod error;
 pub mod project_time;
 pub mod recorder;
@@ -660,6 +661,93 @@ impl RitualDatabase {
     // Sync Queue Operations
     // --------------------------------------------------------------------
 
+    pub async fn enqueue_delivery_outbox(
+        &self,
+        kind: DeliveryOutboxKind,
+        event_id: &str,
+        payload_json: &str,
+    ) -> Result<bool> {
+        let conn = self.conn.read().await;
+        delivery_outbox::DeliveryOutboxOps::new(&conn)
+            .enqueue(kind, event_id, payload_json)
+            .await
+    }
+
+    pub async fn enqueue_delivery_outbox_batch(
+        &self,
+        kind: DeliveryOutboxKind,
+        items: &[(String, String)],
+    ) -> Result<u64> {
+        let conn = self.conn.read().await;
+        delivery_outbox::DeliveryOutboxOps::new(&conn)
+            .enqueue_many(kind, items)
+            .await
+    }
+
+    pub async fn claim_delivery_outbox(
+        &self,
+        kind: DeliveryOutboxKind,
+        lease_owner: &str,
+        limit: i64,
+        lease_ms: i64,
+    ) -> Result<Vec<DeliveryOutboxItem>> {
+        let conn = self.conn.read().await;
+        delivery_outbox::DeliveryOutboxOps::new(&conn)
+            .claim(kind, lease_owner, limit, lease_ms)
+            .await
+    }
+
+    pub async fn acknowledge_delivery_outbox(
+        &self,
+        kind: DeliveryOutboxKind,
+        lease_owner: &str,
+        event_ids: &[String],
+    ) -> Result<u64> {
+        let conn = self.conn.read().await;
+        delivery_outbox::DeliveryOutboxOps::new(&conn)
+            .acknowledge(kind, lease_owner, event_ids)
+            .await
+    }
+
+    pub async fn requeue_delivery_outbox(
+        &self,
+        kind: DeliveryOutboxKind,
+        lease_owner: &str,
+        event_ids: &[String],
+        next_attempt_at: i64,
+        last_error: &str,
+    ) -> Result<u64> {
+        let conn = self.conn.read().await;
+        delivery_outbox::DeliveryOutboxOps::new(&conn)
+            .requeue(kind, lease_owner, event_ids, next_attempt_at, last_error)
+            .await
+    }
+
+    pub async fn delivery_outbox_count(&self, kind: DeliveryOutboxKind) -> Result<i64> {
+        let conn = self.conn.read().await;
+        delivery_outbox::DeliveryOutboxOps::new(&conn)
+            .count(kind)
+            .await
+    }
+
+    pub async fn biome_delivery_cursors(&self) -> Result<std::collections::HashMap<String, i64>> {
+        let conn = self.conn.read().await;
+        delivery_outbox::DeliveryOutboxOps::new(&conn)
+            .biome_cursors()
+            .await
+    }
+
+    pub async fn advance_biome_delivery_cursor(
+        &self,
+        source_key: &str,
+        committed_ts: i64,
+    ) -> Result<()> {
+        let conn = self.conn.read().await;
+        delivery_outbox::DeliveryOutboxOps::new(&conn)
+            .advance_biome_cursor(source_key, committed_ts)
+            .await
+    }
+
     /// Queue activity event for sync
     pub async fn queue_activity_sync(&self, event_id: i64) -> Result<()> {
         let conn = self.conn.read().await;
@@ -698,6 +786,12 @@ impl RitualDatabase {
     pub async fn mark_synced_many(&self, queue_ids: &[i64]) -> Result<()> {
         let conn = self.conn.read().await;
         sync::SyncOps::new(&conn).mark_synced_many(queue_ids).await
+    }
+
+    /// Release sync rows claimed by a bounded pass but not attempted.
+    pub async fn release_sync_claims(&self, queue_ids: &[i64]) -> Result<()> {
+        let conn = self.conn.read().await;
+        sync::SyncOps::new(&conn).release_claims(queue_ids).await
     }
 
     /// Mark sync item as failed

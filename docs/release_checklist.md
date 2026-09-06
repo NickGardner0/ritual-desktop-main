@@ -137,8 +137,8 @@ tb pipe data habit_logs_summary --limit 5
 # apps/desktop/src-tauri/Cargo.toml
 
 # 2. Push a matching desktop release tag
-git tag -a v0.1.53 -m "Ritual desktop v0.1.53"
-git push origin v0.1.53
+git tag -a v0.1.99 -m "Ritual desktop v0.1.99"
+git push origin v0.1.99
 ```
 
 ### Code Signing
@@ -162,7 +162,7 @@ export APPLE_TEAM_ID="D657T2LVR2"
 
 npm run desktop:release:preflight
 npm run desktop:release:mac
-bash scripts/publish-desktop-release-assets.sh v0.1.53
+bash scripts/publish-apple-silicon-desktop-release-assets.sh v0.1.99
 ```
 
 - [ ] Local fallback used only intentionally, not as the standard path

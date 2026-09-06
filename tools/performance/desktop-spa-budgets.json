@@ -1,0 +1,8 @@
+{
+  "description": "Gzip budgets for the Vite desktop Index entry after `npm run --workspace @ritual/desktop-ui build`. Recorded from the 0.1.1-prep SPA (Index JS ~285 KB gzip / CSS ~35 KB gzip). Stretch under 200 KB JS is not the gate while Index is the habit OS.",
+  "indexJsGzipMaxBytes": 290000,
+  "indexCssGzipMaxBytes": 36000,
+  "requiredSeparateChunks": ["streamdown", "mermaid", "shiki"],
+  "indexMustNotContain": ["createHighlighter", "mermaidAPI", "getSingletonHighlighter"],
+  "indexHtmlMustNotPreload": ["streamdown", "shiki", "mermaid", "cytoscape"]
+}

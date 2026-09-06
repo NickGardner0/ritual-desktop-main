@@ -1,67 +1,44 @@
 /**
  * Dashboard Layout Client Wrapper
- * 
- * This wraps the client-only parts:
- * - AIProvider (uses context)
- * - FontProvider (for font preference)
- * - DashboardLayout (has interactive sidebar)
- * - Prefetching logic
+ *
+ * Wraps the client-only shell: AIProvider, FontProvider, DashboardLayout.
+ * Background routine generation waits for idle so Index first paint is not
+ * blocked on generate_due_routines.
  */
 
 'use client';
 
-import { useUser } from '@clerk/nextjs';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { DashboardLayout } from '@/components/dashboard-layout';
 import { DesktopRuntimeBridge } from '@/components/desktop-runtime-bridge';
-import { BrailleSpinner } from '@/components/ui/braille-spinner';
 import { AIProvider } from '@/contexts/AIContext';
 import { FontProvider } from '@/contexts/FontContext';
 import { SidebarModeProvider } from '@/contexts/SidebarModeContext';
-import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import { needsPermissionsOnboarding } from '@/lib/onboarding-flow';
-import { setDashboardWindowSize } from '@/lib/tauri-utils';
+import { runWhenIdle } from '@/lib/run-when-idle';
+
+const RoutineSchedulerRuntime = lazy(() => import('@/lib/routines/routine-scheduler-runtime'));
+
+function RoutineSchedulerBridge() {
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => runWhenIdle(() => setReady(true)), []);
+
+  if (!ready) return null;
+
+  return (
+    <Suspense fallback={null}>
+      <RoutineSchedulerRuntime />
+    </Suspense>
+  );
+}
 
 export function DashboardLayoutClient({ children }: { children: React.ReactNode }) {
-  const router = useRouter();
-  const { isLoaded, user } = useUser();
-  const permissionGatePending = isLoaded && needsPermissionsOnboarding(user?.id);
-  
-  // Prefetch critical routes on mount for instant navigation
-  useEffect(() => {
-    router.prefetch('/dashboard');
-    router.prefetch('/activity');
-    router.prefetch('/analytics');
-    router.prefetch('/chat');
-    router.prefetch('/calendar');
-    router.prefetch('/integrations');
-  }, [router]);
-
-  // Guard dashboard until first-run permission onboarding is completed.
-  useEffect(() => {
-    if (permissionGatePending) {
-      router.replace('/onboarding/permissions');
-    }
-  }, [permissionGatePending, router]);
-
-  // Resize window to dashboard size
-  useEffect(() => {
-    setDashboardWindowSize();
-  }, []);
-
-  if (permissionGatePending) {
-    return (
-      <div className="min-h-screen bg-white flex items-center justify-center">
-        <BrailleSpinner className="text-2xl text-gray-900" />
-      </div>
-    );
-  }
-  
   return (
     <FontProvider>
     <SidebarModeProvider>
     <AIProvider>
       <DesktopRuntimeBridge />
+      <RoutineSchedulerBridge />
       <DashboardLayout>
         {children}
       </DashboardLayout>

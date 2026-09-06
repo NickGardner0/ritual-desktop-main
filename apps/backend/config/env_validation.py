@@ -27,7 +27,21 @@ def validate_environment() -> Tuple[bool, List[str], List[str]]:
         'NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY',
         'CLERK_SECRET_KEY',
         'CLERK_JWKS_URL',
+        'CLERK_WEBHOOK_SIGNING_SECRET',
     ]
+
+    is_production_environment = (
+        os.getenv('NODE_ENV') == 'production'
+        or os.getenv('DEBUG', 'true').lower() == 'false'
+    )
+    if is_production_environment:
+        required_vars.extend([
+            'CLERK_ISSUER',
+            'CLERK_AUTHORIZED_PARTIES',
+            'TURSO_PLATFORM_API_TOKEN',
+            'TURSO_ORGANIZATION',
+            'TURSO_GROUP',
+        ])
 
     # Highly recommended variables (warnings only)
     recommended_vars = [
@@ -42,7 +56,7 @@ def validate_environment() -> Tuple[bool, List[str], List[str]]:
             missing_vars.append(var)
     
     # Check recommended variables (only in production)
-    if os.getenv('NODE_ENV') == 'production' or os.getenv('DEBUG', 'true').lower() == 'false':
+    if is_production_environment:
         for var in recommended_vars:
             if not os.getenv(var):
                 warnings.append(f"Recommended environment variable missing: {var}")

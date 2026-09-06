@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo } from 'react';
-import { useUser } from '@clerk/nextjs';
+import { useAuth, useUser } from '@/lib/desktop-session';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { DateRange } from 'react-day-picker';
 import {
@@ -17,6 +17,7 @@ import {
   type DashboardOverviewSnapshotResponse,
 } from '@/lib/dashboard/overview-snapshot-merge';
 import { QUERY_POLICY } from '@/lib/query-policies';
+import { apiOperationWithAuth } from '@/lib/api/client';
 
 const DASHBOARD_SNAPSHOT_STORAGE_KEY = 'ritual:dashboard-snapshot:v3';
 const SNAPSHOT_MAX_AGE_MS = 1000 * 60 * 60 * 24 * 7;
@@ -150,39 +151,35 @@ function mergeOverviewSnapshot(
   };
 }
 
-async function fetchOverviewSnapshot(dateRange?: DateRange): Promise<DashboardOverviewSnapshotResponse> {
+async function fetchOverviewSnapshot(
+  getToken: (opts?: { skipCache?: boolean }) => Promise<string | null>,
+  dateRange?: DateRange,
+  userId?: string | null,
+): Promise<DashboardOverviewSnapshotResponse> {
   const rangeWindow = getAnalyticsRangeWindow(dateRange);
-  const params = new URLSearchParams();
-
-  if (rangeWindow.startDate && rangeWindow.endDate) {
-    params.set('start_date', rangeWindow.startDate);
-    params.set('end_date', rangeWindow.endDate);
-  }
-
-  const response = await fetch(`/api/dashboard/overview-snapshot${params.size ? `?${params.toString()}` : ''}`, {
-    cache: 'no-store',
-    credentials: 'include',
-  });
-
-  if (!response.ok) {
-    throw new Error(`Failed to fetch dashboard overview snapshot: ${response.status}`);
-  }
-
-  return response.json();
+  return apiOperationWithAuth(
+    'get_dashboard_overview_snapshot_api_dashboard_overview_snapshot_get',
+    getToken,
+    {
+      query: rangeWindow.startDate && rangeWindow.endDate
+        ? { start_date: rangeWindow.startDate, end_date: rangeWindow.endDate }
+        : {},
+    },
+    userId,
+  ) as Promise<DashboardOverviewSnapshotResponse>;
 }
 
 export function useDashboardSnapshotQuery({
-  initialUserId,
   dateRange,
 }: {
-  initialUserId?: string | null;
   dateRange?: DateRange;
 } = {}) {
   const { user } = useUser();
+  const { getToken } = useAuth();
   const queryClient = useQueryClient();
   useHabitsQuery();
 
-  const resolvedUserId = user?.id ?? initialUserId ?? null;
+  const resolvedUserId = user?.id ?? null;
   const queryUserId = resolvedUserId ?? 'anonymous';
   const rangeKey = useMemo(() => getAnalyticsRangeKey(dateRange), [dateRange]);
   const queryKey = useMemo(
@@ -211,7 +208,7 @@ export function useDashboardSnapshotQuery({
         ?? fallbackSnapshot;
 
       try {
-        const payload = await fetchOverviewSnapshot(dateRange);
+        const payload = await fetchOverviewSnapshot(getToken, dateRange, resolvedUserId);
         if (Array.isArray(payload.habits) && payload.habits.length > 0) {
           queryClient.setQueryData(habitKeys.list(resolvedUserId), payload.habits);
         }

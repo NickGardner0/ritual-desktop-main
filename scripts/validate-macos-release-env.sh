@@ -11,6 +11,21 @@ if [[ ! -f "package.json" || ! -d "apps/desktop/src-tauri" ]]; then
   exit 1
 fi
 
+macos_sdk_version="$(xcrun --sdk macosx --show-sdk-version 2>/dev/null || true)"
+macos_sdk_major="${macos_sdk_version%%.*}"
+if [[ -z "${macos_sdk_version}" || ! "${macos_sdk_major}" =~ ^[0-9]+$ || "${macos_sdk_major}" -lt 26 ]]; then
+  cat <<EOF >&2
+Ritual desktop releases must be built with macOS SDK 26.x or newer.
+
+The current SDK is: ${macos_sdk_version:-unknown}
+
+This matters for the macOS-native window chrome: SDK 15.x builds expose the
+older compact traffic-light metrics, while SDK 26.x builds expose the current
+June-style 16x16 native controls.
+EOF
+  exit 1
+fi
+
 if [[ -n "${APPLE_API_KEY_PAT:-}" && -z "${APPLE_API_KEY_PATH:-}" ]]; then
   export APPLE_API_KEY_PATH="${APPLE_API_KEY_PAT}"
   echo "warning: APPLE_API_KEY_PAT is deprecated; treating it as APPLE_API_KEY_PATH" >&2

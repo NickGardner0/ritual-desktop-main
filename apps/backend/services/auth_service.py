@@ -11,6 +11,7 @@ import time
 import logging
 from typing import Optional, Dict, Any
 from datetime import datetime, timedelta, timezone
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +51,36 @@ class AuthService:
                 self.clerk_jwks_url = "https://api.clerk.com/v1/jwks"
         
         logger.info("Clerk JWKS URL: %s", self.clerk_jwks_url)
+
+        self.clerk_issuer = (os.getenv("CLERK_ISSUER") or "").strip()
+        if not self.clerk_issuer:
+            parsed_jwks_url = urlparse(self.clerk_jwks_url)
+            if parsed_jwks_url.scheme == "https" and parsed_jwks_url.netloc:
+                suffix = "/.well-known/jwks.json"
+                if parsed_jwks_url.path.endswith(suffix):
+                    issuer_path = parsed_jwks_url.path[: -len(suffix)].rstrip("/")
+                    self.clerk_issuer = (
+                        f"{parsed_jwks_url.scheme}://{parsed_jwks_url.netloc}{issuer_path}"
+                    )
+
+        configured_parties = (os.getenv("CLERK_AUTHORIZED_PARTIES") or "").strip()
+        fallback_parties = (os.getenv("CORS_ORIGINS") or "").strip()
+        party_source = configured_parties or fallback_parties
+        self.authorized_parties = {
+            value.strip().rstrip("/")
+            for value in party_source.split(",")
+            if value.strip()
+        }
+        self.clerk_audience = (os.getenv("CLERK_AUDIENCE") or "").strip() or None
+
+        if not self.clerk_issuer:
+            logger.warning(
+                "CLERK_ISSUER is not configured and could not be inferred from CLERK_JWKS_URL"
+            )
+        if not self.authorized_parties:
+            logger.warning(
+                "CLERK_AUTHORIZED_PARTIES is not configured; Clerk azp validation is disabled"
+            )
         
         # Initialize PyJWKClient for automatic JWKS fetching and caching
         self.jwks_client = PyJWKClient(
@@ -70,20 +101,6 @@ class AuthService:
         If email is not in token, fetch it from Clerk API
         """
         try:
-            # Debug: log unverified header + payload to diagnose instance mismatches
-            try:
-                unverified_header = jwt.get_unverified_header(token)
-                unverified_payload = jwt.decode(token, options={"verify_signature": False})
-                logger.warning(
-                    "[AUTH DEBUG] token kid=%s iss=%s azp=%s sub=%s",
-                    unverified_header.get("kid"),
-                    unverified_payload.get("iss"),
-                    unverified_payload.get("azp"),
-                    unverified_payload.get("sub"),
-                )
-            except Exception as _dbg:
-                logger.warning("[AUTH DEBUG] failed to peek token: %s", _dbg)
-
             # Get the signing key from JWKS (PyJWKClient handles caching)
             signing_key = self.jwks_client.get_signing_key_from_jwt(token)
             
@@ -92,10 +109,16 @@ class AuthService:
                 token,
                 signing_key.key,
                 algorithms=["RS256"],
+                issuer=self.clerk_issuer or None,
+                audience=self.clerk_audience,
                 options={
                     "verify_signature": True,
                     "verify_exp": True,
                     "verify_iat": True,
+                    "verify_nbf": True,
+                    "verify_iss": bool(self.clerk_issuer),
+                    "verify_aud": bool(self.clerk_audience),
+                    "require": ["exp", "iat", "sub"],
                 }
             )
             
@@ -105,6 +128,19 @@ class AuthService:
             
             if not user_id:
                 logger.error("No user ID found in token")
+                return None
+
+            authorized_party = str(payload.get("azp") or "").strip().rstrip("/")
+            if (
+                authorized_party
+                and self.authorized_parties
+                and authorized_party not in self.authorized_parties
+            ):
+                logger.warning("Rejected Clerk token from an unauthorized party")
+                return None
+
+            if payload.get("sts") == "pending":
+                logger.warning("Rejected Clerk session whose status is pending")
                 return None
             
             # If email is not in token, fetch from Clerk API

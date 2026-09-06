@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 import { Suspense } from 'react'
-import { SpeedInsights } from '@vercel/speed-insights/next'
 import { GeistSans } from 'geist/font/sans'
+import { DM_Sans, Inter } from 'next/font/google'
 import './globals.css'
 import ChunkErrorBoundary from '@/components/ChunkErrorBoundary'
 import { RootProviders } from '@/components/root-providers'
@@ -13,13 +13,31 @@ export const metadata: Metadata = {
 
 const geistSans = GeistSans
 
+const inter = Inter({
+  subsets: ['latin'],
+  weight: ['400', '500'],
+  variable: '--font-inter',
+  display: 'swap',
+})
+
+const dmSans = DM_Sans({
+  subsets: ['latin'],
+  weight: ['400', '500'],
+  variable: '--font-dm-sans',
+  display: 'swap',
+})
+
 export default function RootLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
   return (
-    <html lang="en" className={`desktop ${geistSans.variable}`} suppressHydrationWarning>
+    <html
+      lang="en"
+      className={`desktop ${geistSans.variable} ${inter.variable} ${dmSans.variable}`}
+      suppressHydrationWarning
+    >
       <head>
         <meta name="view-transition" content="same-origin" />
         {/* Preload critical fonts to prevent FOUT (Flash of Unstyled Text) */}
@@ -37,13 +55,6 @@ export default function RootLayout({
           type="font/otf"
           crossOrigin="anonymous"
         />
-        <link
-          rel="preload"
-          href="/fonts/material-symbols/MaterialSymbolsRounded-400.ttf"
-          as="font"
-          type="font/ttf"
-          crossOrigin="anonymous"
-        />
       </head>
       <body>
         <ChunkErrorBoundary>
@@ -53,8 +64,7 @@ export default function RootLayout({
             </RootProviders>
           </Suspense>
         </ChunkErrorBoundary>
-        <SpeedInsights />
       </body>
     </html>
   )
-} 
+}

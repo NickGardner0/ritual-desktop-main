@@ -2,10 +2,11 @@
 
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { AuthenticateWithRedirectCallback, useUser, useSignIn } from '@clerk/nextjs';
 
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
+import { getDesktopCapabilities } from '@/lib/desktop-capabilities';
 
 type CallbackState =
   | { status: 'preparing'; message: string }
@@ -57,7 +58,7 @@ function parseCallbackState(searchParams: URLSearchParams, rawDeepLink: string |
 
 function AuthCallbackLoader({ message }: { message: string }) {
   return (
-    <div className="min-h-screen bg-white flex items-center justify-center">
+    <div className="ritual-onboarding-font min-h-screen bg-[#fcfcfa] glass-opaque-screen flex items-center justify-center">
       <div className="text-center">
         <BrailleSpinner className="mx-auto mb-4 h-12 w-12 text-4xl text-gray-900" />
         <p className="text-sm text-gray-600">{message}</p>
@@ -68,7 +69,7 @@ function AuthCallbackLoader({ message }: { message: string }) {
 
 function AuthCallbackError({ message }: { message: string }) {
   return (
-    <div className="min-h-screen bg-white flex items-center justify-center px-6">
+    <div className="ritual-onboarding-font min-h-screen bg-[#fcfcfa] glass-opaque-screen flex items-center justify-center px-6">
       <div className="w-full max-w-lg rounded-2xl border border-red-200 bg-red-50 p-8 text-[#1d1a16] shadow-sm">
         <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-red-700">
           Ritual Desktop Auth
@@ -133,19 +134,25 @@ function isAlreadySignedInError(error: unknown): boolean {
 }
 
 function TicketCallback({ ticket }: { ticket: string }) {
+  const router = useRouter();
   const { isLoaded, signIn, setActive } = useSignIn();
   const { isLoaded: userLoaded, isSignedIn } = useUser();
   const startedRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (getDesktopCapabilities().isDesktop) {
+      router.replace('/auth/sso-callback');
+      return;
+    }
+
     if (!isLoaded || !userLoaded || startedRef.current) {
       return;
     }
 
     if (isSignedIn) {
       startedRef.current = true;
-      window.location.replace('/auth/sso-callback');
+      router.replace('/auth/sso-callback');
       return;
     }
 
@@ -166,10 +173,10 @@ function TicketCallback({ ticket }: { ticket: string }) {
           session: attempt.createdSessionId,
         });
 
-        window.location.replace('/auth/sso-callback');
+        router.replace('/auth/sso-callback');
       } catch (ticketError) {
         if (isAlreadySignedInError(ticketError)) {
-          window.location.replace('/auth/sso-callback');
+          router.replace('/auth/sso-callback');
           return;
         }
 
@@ -179,7 +186,7 @@ function TicketCallback({ ticket }: { ticket: string }) {
     };
 
     void run();
-  }, [isLoaded, isSignedIn, setActive, signIn, ticket, userLoaded]);
+  }, [isLoaded, isSignedIn, router, setActive, signIn, ticket, userLoaded]);
 
   if (error) {
     return <AuthCallbackError message={error} />;
@@ -197,7 +204,15 @@ function AuthCallbackPageInner() {
   });
 
   useEffect(() => {
-    setCallbackState(parseCallbackState(new URLSearchParams(searchParams.toString()), deepLink));
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (!cancelled) {
+        setCallbackState(parseCallbackState(new URLSearchParams(searchParams.toString()), deepLink));
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [deepLink, searchParams]);
 
   useEffect(() => {

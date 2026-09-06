@@ -1,25 +1,20 @@
 'use client';
 
 import { QueryClientProvider, dehydrate, hydrate, type Query } from '@tanstack/react-query';
-import { useUser } from '@clerk/nextjs';
+import { useUser } from '@/lib/desktop-session';
 import * as Sentry from '@sentry/nextjs';
-import { usePathname } from 'next/navigation';
+import { usePathname } from '@/lib/app-navigation';
 import { queryClient } from '@/lib/query-client';
-import { ReactNode, useEffect, useState } from 'react';
+import { ReactNode, useEffect, useRef } from 'react';
 import { auditLocalStorage, auditQueryCache, perfInfo, perfWarn } from '@/lib/perf-debug';
 import { clearPersistedHabitSnapshots } from '@/hooks/use-habits-query';
+import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
+import { clearEntitySummaryCache, setEntitySummaryCacheUser } from '@/lib/entities/resolve';
 
 const QUERY_CACHE_STORAGE_KEY = 'ritual:react-query-cache:v1';
 const QUERY_CACHE_MAX_AGE_MS = 1000 * 60 * 60 * 12;
 const MAX_PERSISTED_QUERY_BYTES = 75_000;
 const ACTIVE_QUERY_CACHE_USER_KEY = 'ritual:active-query-cache-user:v1';
-
-function isDesktopRuntime(): boolean {
-  if (typeof window === 'undefined') return false;
-  const w = window as Window & { __TAURI__?: unknown; __TAURI_IPC__?: unknown };
-  const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent || '' : '';
-  return Boolean(w.__TAURI__ || w.__TAURI_IPC__ || userAgent.includes('RitualDesktop/'));
-}
 
 function getDesktopVersion(): string | undefined {
   if (typeof navigator === 'undefined') return undefined;
@@ -58,34 +53,48 @@ function shouldPersistQuery(query: Query): boolean {
   return getPersistedQuerySize(query) <= MAX_PERSISTED_QUERY_BYTES;
 }
 
-function restorePersistedQueryCache() {
+function queryCacheStorageKey(userId: string) {
+  return `${QUERY_CACHE_STORAGE_KEY}:${userId}`;
+}
+
+function restorePersistedQueryCache(userId: string) {
   if (typeof window === 'undefined') return;
 
   try {
-    const raw = window.localStorage.getItem(QUERY_CACHE_STORAGE_KEY);
+    window.localStorage.removeItem(QUERY_CACHE_STORAGE_KEY);
+    const raw = window.localStorage.getItem(queryCacheStorageKey(userId));
     if (!raw) {
       perfInfo('query-provider', 'restore-cache-miss', {
-        key: QUERY_CACHE_STORAGE_KEY,
+        key: queryCacheStorageKey(userId),
       });
       return;
     }
 
     const parsed = JSON.parse(raw) as {
       timestamp?: number;
+      userId?: string;
       state?: unknown;
     };
 
+    if (parsed?.userId && parsed.userId !== userId) {
+      window.localStorage.removeItem(queryCacheStorageKey(userId));
+      perfWarn('query-provider', 'restore-cache-identity-mismatch', {
+        key: queryCacheStorageKey(userId),
+      });
+      return;
+    }
+
     if (!parsed?.state) {
       perfWarn('query-provider', 'restore-cache-empty-state', {
-        key: QUERY_CACHE_STORAGE_KEY,
+        key: queryCacheStorageKey(userId),
         bytes: raw.length,
       });
       return;
     }
     if (parsed.timestamp && Date.now() - parsed.timestamp > QUERY_CACHE_MAX_AGE_MS) {
-      window.localStorage.removeItem(QUERY_CACHE_STORAGE_KEY);
+      window.localStorage.removeItem(queryCacheStorageKey(userId));
       perfWarn('query-provider', 'restore-cache-expired', {
-        key: QUERY_CACHE_STORAGE_KEY,
+        key: queryCacheStorageKey(userId),
         age_ms: Date.now() - parsed.timestamp,
         bytes: raw.length,
       });
@@ -94,7 +103,7 @@ function restorePersistedQueryCache() {
 
     hydrate(queryClient, parsed.state);
     perfInfo('query-provider', 'restore-cache-success', {
-      key: QUERY_CACHE_STORAGE_KEY,
+      key: queryCacheStorageKey(userId),
       bytes: raw.length,
       age_ms: parsed.timestamp ? Date.now() - parsed.timestamp : undefined,
     });
@@ -104,7 +113,7 @@ function restorePersistedQueryCache() {
   }
 }
 
-function persistQueryCache() {
+function persistQueryCache(userId: string) {
   if (typeof window === 'undefined') return;
 
   try {
@@ -114,15 +123,16 @@ function persistQueryCache() {
 
     const payload = JSON.stringify({
       timestamp: Date.now(),
+      userId,
       state: dehydratedState,
     });
 
     window.localStorage.setItem(
-      QUERY_CACHE_STORAGE_KEY,
+      queryCacheStorageKey(userId),
       payload,
     );
     perfInfo('query-provider', 'persist-cache-success', {
-      key: QUERY_CACHE_STORAGE_KEY,
+      key: queryCacheStorageKey(userId),
       bytes: payload.length,
       query_count: dehydratedState.queries?.length ?? 0,
     });
@@ -131,9 +141,19 @@ function persistQueryCache() {
   }
 }
 
-function clearPersistedQueryCache() {
+function clearPersistedQueryCache(userId?: string | null) {
   if (typeof window === 'undefined') return;
+  if (userId) {
+    window.localStorage.removeItem(queryCacheStorageKey(userId));
+    return;
+  }
   window.localStorage.removeItem(QUERY_CACHE_STORAGE_KEY);
+  const staleKeys: string[] = [];
+  for (let index = 0; index < window.localStorage.length; index += 1) {
+    const key = window.localStorage.key(index);
+    if (key?.startsWith(`${QUERY_CACHE_STORAGE_KEY}:`)) staleKeys.push(key);
+  }
+  for (const key of staleKeys) window.localStorage.removeItem(key);
 }
 
 /**
@@ -147,16 +167,14 @@ function clearPersistedQueryCache() {
  */
 export function QueryProvider({ children }: { children: ReactNode }) {
   const { isLoaded, user } = useUser();
+  const { isDesktop } = useDesktopCapabilities();
   const pathname = usePathname();
-  const [cacheRestored] = useState(() => {
-    restorePersistedQueryCache();
-    return true;
-  });
+  const restoredForUserRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!isLoaded) return;
 
-    const runtime = isDesktopRuntime() ? 'desktop' : 'web';
+    const runtime = isDesktop ? 'desktop' : 'web';
     const desktopVersion = getDesktopVersion();
     Sentry.setTag('runtime', runtime);
     Sentry.setTag('surface', runtime === 'desktop' ? 'desktop-webview' : 'web-client');
@@ -173,7 +191,7 @@ export function QueryProvider({ children }: { children: ReactNode }) {
     } else {
       Sentry.setUser(null);
     }
-  }, [isLoaded, pathname, user?.id, user?.primaryEmailAddress?.emailAddress]);
+  }, [isDesktop, isLoaded, pathname, user?.id, user?.primaryEmailAddress?.emailAddress]);
 
   useEffect(() => {
     if (typeof window === 'undefined' || !isLoaded) return;
@@ -181,31 +199,32 @@ export function QueryProvider({ children }: { children: ReactNode }) {
     const previousUserId = window.sessionStorage.getItem(ACTIVE_QUERY_CACHE_USER_KEY);
     const currentUserId = user?.id ?? null;
 
-    if (!previousUserId) {
-      if (currentUserId) {
-        window.sessionStorage.setItem(ACTIVE_QUERY_CACHE_USER_KEY, currentUserId);
-      }
-      return;
+    if (previousUserId && previousUserId !== currentUserId) {
+      queryClient.clear();
+      clearPersistedQueryCache(previousUserId);
+      clearPersistedHabitSnapshots();
+      clearEntitySummaryCache();
+      restoredForUserRef.current = null;
     }
 
-    if (previousUserId === currentUserId) {
-      return;
-    }
-
-    queryClient.clear();
-    clearPersistedQueryCache();
-    clearPersistedHabitSnapshots();
+    setEntitySummaryCacheUser(currentUserId);
 
     if (currentUserId) {
       window.sessionStorage.setItem(ACTIVE_QUERY_CACHE_USER_KEY, currentUserId);
+      if (restoredForUserRef.current !== currentUserId) {
+        restorePersistedQueryCache(currentUserId);
+        restoredForUserRef.current = currentUserId;
+      }
     } else {
       window.sessionStorage.removeItem(ACTIVE_QUERY_CACHE_USER_KEY);
+      clearEntitySummaryCache();
     }
   }, [isLoaded, user?.id]);
 
   useEffect(() => {
-    if (!cacheRestored) return;
-    auditLocalStorage('query-provider', [QUERY_CACHE_STORAGE_KEY]);
+    if (!isLoaded || !user?.id) return;
+    const userId = user.id;
+    auditLocalStorage('query-provider', [queryCacheStorageKey(userId)]);
     auditQueryCache('query-provider', queryClient);
 
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
@@ -214,7 +233,7 @@ export function QueryProvider({ children }: { children: ReactNode }) {
         clearTimeout(timeoutId);
       }
       timeoutId = setTimeout(() => {
-        persistQueryCache();
+        persistQueryCache(userId);
       }, 300);
     };
 
@@ -227,7 +246,7 @@ export function QueryProvider({ children }: { children: ReactNode }) {
         clearTimeout(timeoutId);
         timeoutId = null;
       }
-      persistQueryCache();
+      persistQueryCache(userId);
     };
 
     window.addEventListener('beforeunload', flushPersist);
@@ -241,7 +260,7 @@ export function QueryProvider({ children }: { children: ReactNode }) {
       window.removeEventListener('beforeunload', flushPersist);
       document.removeEventListener('visibilitychange', flushPersist);
     };
-  }, [cacheRestored]);
+  }, [isLoaded, user?.id]);
 
   return (
     <QueryClientProvider client={queryClient}>

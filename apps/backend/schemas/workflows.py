@@ -7,7 +7,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from schemas.artifacts import ArtifactKind, ArtifactListItem
 
@@ -19,6 +19,7 @@ WorkflowRunStatus = Literal["queued", "processing", "completed", "failed", "canc
 WorkflowTriggerSource = Literal["manual", "scheduled", "backfill", "signal"]
 WorkflowDefinitionFamily = Literal["routine", "ambient"]
 WorkflowTriggerType = Literal["schedule", "signal"]
+WorkflowCadence = Literal["daily", "weekly"]
 ApprovalStatus = Literal["pending", "approved", "rejected", "expired"]
 
 
@@ -54,10 +55,20 @@ class ActionProfileListResponse(BaseModel):
 
 class WorkflowSchedule(BaseModel):
     timezone: str = "America/New_York"
-    cadence: str = "daily"
+    cadence: WorkflowCadence = "daily"
     send_hour_local: int = Field(default=8, ge=0, le=23)
     send_minute_local: int = Field(default=0, ge=0, le=59)
     send_weekdays: List[int] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_schedule(self) -> "WorkflowSchedule":
+        weekdays = sorted(set(self.send_weekdays))
+        if any(day < 0 or day > 6 for day in weekdays):
+            raise ValueError("send_weekdays values must be between 0 and 6")
+        if self.cadence == "weekly" and not weekdays:
+            raise ValueError("weekly workflows require at least one send_weekday")
+        self.send_weekdays = weekdays or list(range(7))
+        return self
 
 
 class WorkflowDelivery(BaseModel):
@@ -74,6 +85,7 @@ class WorkflowDefinitionRead(BaseModel):
     trigger_type: WorkflowTriggerType = "schedule"
     signal_kind: Optional[str] = None
     cooldown_minutes: int = 240
+    expected_duration_minutes: int = 30
     quiet_hours: Dict[str, Any] = Field(default_factory=dict)
     status: WorkflowStatus
     schedule: WorkflowSchedule
@@ -92,7 +104,25 @@ class WorkflowDefinitionListResponse(BaseModel):
     items: List[WorkflowDefinitionRead] = Field(default_factory=list)
 
 
+class WorkflowDefinitionCreate(BaseModel):
+    kind: WorkflowKind
+    name: str
+    definition_family: WorkflowDefinitionFamily = "routine"
+    trigger_type: WorkflowTriggerType = "schedule"
+    signal_kind: Optional[str] = None
+    status: WorkflowStatus = "draft"
+    schedule: WorkflowSchedule = Field(default_factory=WorkflowSchedule)
+    config: Dict[str, Any] = Field(default_factory=dict)
+    ranking: Dict[str, Any] = Field(default_factory=dict)
+    quiet_hours: Dict[str, Any] = Field(default_factory=dict)
+    delivery: WorkflowDelivery = Field(default_factory=WorkflowDelivery)
+    cooldown_minutes: int = 240
+    expected_duration_minutes: int = Field(default=30, ge=5, le=720)
+    action_profile_id: Optional[str] = None
+
+
 class WorkflowDefinitionUpdate(BaseModel):
+    name: Optional[str] = None
     definition_family: Optional[WorkflowDefinitionFamily] = None
     trigger_type: Optional[WorkflowTriggerType] = None
     signal_kind: Optional[str] = None
@@ -103,6 +133,7 @@ class WorkflowDefinitionUpdate(BaseModel):
     quiet_hours: Optional[Dict[str, Any]] = None
     delivery: Optional[WorkflowDelivery] = None
     cooldown_minutes: Optional[int] = None
+    expected_duration_minutes: Optional[int] = Field(default=None, ge=5, le=720)
     action_profile_id: Optional[str] = None
 
 
@@ -181,6 +212,7 @@ class ActionReceiptRead(BaseModel):
     user_id: str
     workflow_run_id: Optional[str] = None
     conversation_id: Optional[str] = None
+    client_event_id: Optional[str] = None
     action_kind: str
     capability: str
     target_ref: Optional[str] = None
@@ -190,6 +222,13 @@ class ActionReceiptRead(BaseModel):
     undo: Optional[Dict[str, Any]] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
     created_at: Optional[datetime] = None
+    undoable: bool = False
+
+
+class ActionReceiptUndoResponse(BaseModel):
+    receipt: ActionReceiptRead
+    undone: bool = True
+    noop: bool = False
 
 
 class InternalWorkflowWindow(BaseModel):

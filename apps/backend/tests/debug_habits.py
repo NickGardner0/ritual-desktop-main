@@ -15,9 +15,6 @@ sys.path.insert(0, str(Path(__file__).parent))
 # Set environment variables
 os.environ.update({
     'DATABASE_URL': 'sqlite+aiosqlite:///./ritual.db',
-    'TINYBIRD_ENV': 'cloud',
-    'TINYBIRD_API_URL': 'https://api.us-east.aws.tinybird.co',
-    'TINYBIRD_TOKEN': 'p.eyJ1IjogIjljMTA0NGJhLTM5NjAtNDZkOS1iMWQ5LTAyY2Q2OTc5ZDVlOSIsICJpZCI6ICJmMWJjYzQ4Zi1mM2QxLTQ3YzgtODAwYi00MWU0ZTlhMzU5YjciLCAiaG9zdCI6ICJ1cy1lYXN0LWF3cyJ9.cIau5gLqIaohshuRL2Lr6MO_2UuXKwE49hyF3IUw5oA',
     'JWT_SECRET': 'migration-secret-key',
 })
 

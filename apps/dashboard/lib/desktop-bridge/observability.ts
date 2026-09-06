@@ -127,3 +127,95 @@ export async function recordDesktopShellEvent(
     console.warn("Desktop shell event logging failed:", error);
   }
 }
+
+const launchMarks = new Map<string, number>();
+
+export function recordLaunchMilestone(
+  name: string,
+  extra?: Record<string, unknown>,
+): void {
+  if (typeof performance === "undefined") return;
+  const now = performance.now();
+  if (!launchMarks.has("navigationStart")) {
+    launchMarks.set("navigationStart", 0);
+    performance.mark("ritual:launch:navigationStart");
+  }
+  launchMarks.set(name, now);
+  try {
+    performance.mark(`ritual:launch:${name}`);
+  } catch {
+    // Ignore duplicate marks in Fast Refresh.
+  }
+  void recordDesktopShellEvent(`launch:${name}`, "info", {
+    elapsed_ms: Number(now.toFixed(2)),
+    ...processTelemetry(),
+    ...extra,
+  });
+}
+
+export function getLaunchMilestones(): Record<string, number> {
+  return Object.fromEntries(launchMarks);
+}
+
+const LAUNCH_SAMPLE_KEY = "ritual:launch-medians:v1";
+const LAUNCH_KIND_KEY = "ritual:launch-kind";
+
+function median(values: number[]): number | null {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0
+    ? Number(((sorted[mid - 1] + sorted[mid]) / 2).toFixed(2))
+    : sorted[mid];
+}
+
+export type LaunchMedianSummary = {
+  kind: "cold" | "warm";
+  samples: number;
+  milestones: Record<string, { last_ms: number; median_ms: number | null }>;
+};
+
+export function summarizeLaunchMilestones(): LaunchMedianSummary | null {
+  if (typeof window === "undefined" || typeof performance === "undefined") return null;
+  const kind: "cold" | "warm" = window.sessionStorage.getItem(LAUNCH_KIND_KEY) ? "warm" : "cold";
+  window.sessionStorage.setItem(LAUNCH_KIND_KEY, kind);
+
+  const current = getLaunchMilestones();
+  let stored: { cold: Record<string, number[]>; warm: Record<string, number[]> } = { cold: {}, warm: {} };
+  try {
+    stored = JSON.parse(window.localStorage.getItem(LAUNCH_SAMPLE_KEY) || "null") || stored;
+  } catch {
+    stored = { cold: {}, warm: {} };
+  }
+
+  const bucket = stored[kind];
+  for (const [name, value] of Object.entries(current)) {
+    const next = [...(bucket[name] || []), value].slice(-20);
+    bucket[name] = next;
+  }
+  window.localStorage.setItem(LAUNCH_SAMPLE_KEY, JSON.stringify(stored));
+
+  const milestones: LaunchMedianSummary["milestones"] = {};
+  for (const [name, value] of Object.entries(current)) {
+    milestones[name] = {
+      last_ms: Number(value.toFixed(2)),
+      median_ms: median(bucket[name] || []),
+    };
+  }
+
+  return {
+    kind,
+    samples: Math.max(0, ...Object.values(bucket).map((item) => item.length)),
+    milestones,
+  };
+}
+
+function processTelemetry(): Record<string, unknown> {
+  const memory = (performance as Performance & { memory?: { usedJSHeapSize?: number } }).memory;
+  return {
+    heap_used_bytes: memory?.usedJSHeapSize ?? null,
+    hardware_concurrency: typeof navigator === "undefined" ? null : navigator.hardwareConcurrency,
+    hidden: typeof document === "undefined" ? null : document.visibilityState !== "visible",
+  };
+}
+

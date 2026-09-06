@@ -7,7 +7,7 @@ export type MetricHabitLike = {
   habit_name: string;
   category?: string;
   unit_type?: string;
-  [key: string]: any;
+  [key: string]: unknown;
 };
 
 export type MetricSummaryLike = {
@@ -15,7 +15,7 @@ export type MetricSummaryLike = {
   total_value?: number;
   current_value?: number;
   days_with_data?: number;
-  [key: string]: any;
+  [key: string]: unknown;
 };
 
 export type MetricDailyRow = {
@@ -27,7 +27,7 @@ export type MetricDailyRow = {
   unit?: string;
   total_duration_seconds?: number;
   completed_count?: number;
-  entries?: any[];
+  entries?: Array<Record<string, unknown>>;
   sleep_onset?: string | null;
   sleep_end?: string | null;
   time?: string | null;
@@ -146,24 +146,34 @@ export function getMetricCategoryForHabit(habitName: string, dbCategory?: string
   return 'experiments';
 }
 
-export function mapDailyBreakdownRows(habitId: string, rows: any[]): MetricDailyRow[] {
-  return rows.map((point: any) => {
-    const entries = Array.isArray(point?.entries) ? point.entries : [];
-    const sleepEntry = entries.find((entry: any) => entry?.sleep_start || entry?.sleep_end || entry?.time) || entries[0];
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+export function mapDailyBreakdownRows(habitId: string, rows: unknown[]): MetricDailyRow[] {
+  return rows.filter(isRecord).map((point) => {
+    const entries = Array.isArray(point.entries) ? point.entries.filter(isRecord) : [];
+    const sleepEntry = entries.find((entry) => entry.sleep_start || entry.sleep_end || entry.time) || entries[0];
 
     return {
       habit_id: habitId,
-      date: point.date,
+      date: typeof point.date === 'string' ? point.date : undefined,
       daily_value: Number(point.value ?? point.total_amount ?? 0),
-      unit: point.unit,
+      unit: typeof point.unit === 'string' ? point.unit : undefined,
       total_amount: Number(point.total_amount ?? point.value ?? 0),
       total_duration_seconds: Number(point.total_duration_seconds ?? 0),
       completed_count: entries.length || (Number(point.value || point.total_amount || 0) > 0 ? 1 : 0),
       entries,
-      sleep_onset: point.sleep_onset ?? sleepEntry?.sleep_start ?? null,
-      sleep_end: point.sleep_end ?? sleepEntry?.sleep_end ?? null,
-      time: point.time ?? sleepEntry?.time ?? null,
-      completed_at: point.completed_at ?? null,
+      sleep_onset: (typeof point.sleep_onset === 'string' ? point.sleep_onset : undefined)
+        ?? (typeof sleepEntry?.sleep_start === 'string' ? sleepEntry.sleep_start : undefined)
+        ?? null,
+      sleep_end: (typeof point.sleep_end === 'string' ? point.sleep_end : undefined)
+        ?? (typeof sleepEntry?.sleep_end === 'string' ? sleepEntry.sleep_end : undefined)
+        ?? null,
+      time: (typeof point.time === 'string' ? point.time : undefined)
+        ?? (typeof sleepEntry?.time === 'string' ? sleepEntry.time : undefined)
+        ?? null,
+      completed_at: typeof point.completed_at === 'string' ? point.completed_at : null,
     };
   });
 }
@@ -341,7 +351,7 @@ export function buildHabitMetricCardData({
     currentValue = latestValue || Number(safeSummary.current_value ?? localAverage ?? 0);
   }
 
-  const habitUnit = habit.unit_type || safeSummary.unit || habit.unit || 'count';
+  const habitUnit = String(habit.unit_type || safeSummary.unit || habit.unit || 'count');
   let change = computeMeaningfulPercentChange(latestValue, previousValue, habitUnit);
   let absoluteChange = latestValue - previousValue;
 

@@ -26,48 +26,66 @@ let realImport = false;
 
 // Import the real buildBackendAuthHeaders to verify header construction
 let buildBackendAuthHeaders;
+let evaluateBackendCatchallPolicy;
 let matchBackendOpenApiPath;
+let matchBackendOpenApiOperation;
 let resolveBackendProxyPath;
-let getBackendProxyCompatibilityFallback;
+let resolveProxyForwarding;
 try {
   // tsx can resolve TS files with relative paths
   const authMod = await import("../lib/server/backend-auth.ts");
   const generatedClientMod = await import("../lib/api/generated/backend-client.ts");
+  const catchallPolicyMod = await import("../lib/server/backend-catchall-policy.ts");
   const proxyRoutingMod = await import("../lib/server/backend-proxy-routing.ts");
   buildBackendAuthHeaders = authMod.buildBackendAuthHeaders;
+  evaluateBackendCatchallPolicy = catchallPolicyMod.evaluateBackendCatchallPolicy;
   matchBackendOpenApiPath = generatedClientMod.matchBackendOpenApiPath;
+  matchBackendOpenApiOperation = generatedClientMod.matchBackendOpenApiOperation;
   resolveBackendProxyPath = proxyRoutingMod.resolveBackendProxyPath;
-  getBackendProxyCompatibilityFallback = proxyRoutingMod.getBackendProxyCompatibilityFallback;
+  resolveProxyForwarding = authMod.resolveProxyForwarding;
   realImport = true;
 } catch {
   // Fallback: replicate the logic
-  buildBackendAuthHeaders = ({ userId, token, contentType = "application/json" }) => {
+  buildBackendAuthHeaders = ({ userId, token, contentType = "application/json", forceFresh = false }) => {
     const headers = {};
     if (contentType) headers["Content-Type"] = contentType;
     if (token) headers["Authorization"] = `Bearer ${token}`;
+    if (forceFresh) headers["X-Ritual-Force-Fresh"] = "1";
     return headers;
   };
   matchBackendOpenApiPath = (path) => {
     if (path === "/api/artifacts") return "/api/artifacts";
+    if (path === "/api/import/preview") return "/api/import/preview";
+    if (path === "/api/suggestions") return "/api/suggestions";
     if (path === "/api/wearables/apple/metric_preferences") return "/api/wearables/apple/metric_preferences";
+    if (path === "/api/wearables/connections") return "/api/wearables/connections";
     if (path === "/api/watcher/stats/summary") return "/api/watcher/stats/summary";
     if (/^\/api\/artifacts\/[^/]+$/.test(path)) return "/api/artifacts/{artifact_id}";
     return null;
+  };
+  matchBackendOpenApiOperation = (method, path) => (
+    method.toUpperCase() === "GET" && path === "/api/artifacts" ? "list_artifacts" : null
+  );
+  evaluateBackendCatchallPolicy = (path, method, contentType) => {
+    if (["/api/import/preview", "/api/screenshot/preview", "/api/wearables/apple/export"].includes(path)) {
+      return { allowed: false, status: 404, error: "API route has an explicit adapter" };
+    }
+    if (!["GET", "HEAD"].includes(method.toUpperCase()) && contentType && !contentType.includes("json")) {
+      return { allowed: false, status: 415, error: "The generic backend route accepts JSON operations only" };
+    }
+    return { allowed: true };
   };
   resolveBackendProxyPath = (path) => {
     if (path === "/api/wearables/apple/metric-preferences") return "/api/wearables/apple/metric_preferences";
     return path;
   };
-  getBackendProxyCompatibilityFallback = (method, path, searchParams) => {
-    if (method === "GET" && path === "/api/suggestions") {
-      return {
-        suggestions: [],
-        mode: searchParams?.get("mode") || "chat",
-        query: searchParams?.get("q") || "",
-      };
-    }
-    if (method === "GET" && path === "/api/wearables/connections") return { connections: [] };
-    return undefined;
+  resolveProxyForwarding = (contentTypeHeader) => {
+    const contentType = contentTypeHeader?.trim() || "";
+    const isMultipart = contentType.toLowerCase().includes("multipart/form-data");
+    return {
+      isMultipart,
+      contentType: isMultipart ? contentType : "application/json",
+    };
   };
 }
 
@@ -104,6 +122,11 @@ describe(`buildBackendAuthHeaders (real=${realImport})`, () => {
         process.env.INTERNAL_API_KEY = origKey;
       }
     }
+  });
+
+  test("forceFresh produces X-Ritual-Force-Fresh header", () => {
+    const h = buildBackendAuthHeaders({ userId: "u1", token: "jwt-abc", forceFresh: true });
+    assert.equal(h["X-Ritual-Force-Fresh"], "1");
   });
 });
 
@@ -176,9 +199,45 @@ describe("Fast-path forwarded headers", () => {
   });
 });
 
+describe("Catch-all JSON ownership", () => {
+  test("keeps JSON content-type for ordinary mutating calls", () => {
+    const forwarding = resolveProxyForwarding("application/json");
+    assert.equal(forwarding.isMultipart, false);
+    assert.equal(forwarding.contentType, "application/json");
+  });
+
+  test("fixed adapters preserve multipart content-type and boundary", () => {
+    const header = "multipart/form-data; boundary=----RitualBoundary";
+    const forwarding = resolveProxyForwarding(header);
+    assert.equal(forwarding.isMultipart, true);
+    assert.equal(forwarding.contentType, header);
+  });
+
+  test("rejects multipart and explicitly owned operations from the catch-all", () => {
+    assert.equal(
+      evaluateBackendCatchallPolicy("/api/artifacts", "POST", "multipart/form-data; boundary=ritual").status,
+      415,
+    );
+    assert.equal(
+      evaluateBackendCatchallPolicy("/api/import/preview", "POST", "multipart/form-data; boundary=ritual").status,
+      404,
+    );
+    assert.equal(
+      evaluateBackendCatchallPolicy("/api/screenshot/preview", "POST", "multipart/form-data; boundary=ritual").status,
+      404,
+    );
+    assert.equal(
+      evaluateBackendCatchallPolicy("/api/wearables/apple/export", "GET", null).status,
+      404,
+    );
+  });
+});
+
 describe("Generated backend route allowlist", () => {
   test("matches exact OpenAPI paths for the generic catch-all proxy", () => {
     assert.equal(matchBackendOpenApiPath("/api/artifacts"), "/api/artifacts");
+    assert.ok(matchBackendOpenApiOperation("GET", "/api/artifacts"));
+    assert.equal(matchBackendOpenApiOperation("TRACE", "/api/artifacts"), null);
   });
 
   test("matches templated OpenAPI paths for deleted dynamic proxy files", () => {
@@ -194,7 +253,7 @@ describe("Generated backend route allowlist", () => {
   });
 });
 
-describe("Backend proxy routing compatibility", () => {
+describe("Backend proxy routing", () => {
   test("maps legacy dashed dashboard wearable paths to backend snake_case paths", () => {
     assert.equal(
       resolveBackendProxyPath("/api/wearables/apple/metric-preferences"),
@@ -206,25 +265,26 @@ describe("Backend proxy routing compatibility", () => {
     );
   });
 
-  test("keeps GET fallbacks scoped away from mutating requests", () => {
-    assert.deepEqual(
-      getBackendProxyCompatibilityFallback("GET", "/api/wearables/connections"),
-      { connections: [] },
-    );
-    assert.equal(
-      getBackendProxyCompatibilityFallback("POST", "/api/wearables/connections"),
-      undefined,
-    );
+  test("forwards live FastAPI suggestion and connection routes instead of empty stubs", () => {
+    assert.equal(matchBackendOpenApiPath("/api/suggestions"), "/api/suggestions");
+    assert.equal(matchBackendOpenApiPath("/api/wearables/connections"), "/api/wearables/connections");
   });
+});
 
-  test("preserves query-shaped fallback payloads after deleting suggestion proxy route", () => {
-    assert.deepEqual(
-      getBackendProxyCompatibilityFallback(
-        "GET",
-        "/api/suggestions",
-        new URLSearchParams("mode=log&q=sleep"),
-      ),
-      { suggestions: [], mode: "log", query: "sleep" },
-    );
+describe("Proxied success responses", () => {
+  test("pipe upstream bodies without a JSON clone", async () => {
+    const { createProxiedSuccessInit } = await import("../lib/server/proxy-response-init.mjs");
+    const payload = { habits: [{ id: "h1" }], count: 1 };
+    const body = JSON.stringify(payload);
+    const upstream = new Response(body, {
+      status: 200,
+      headers: { "content-type": "application/json; charset=utf-8" },
+    });
+    const init = createProxiedSuccessInit(upstream);
+    const proxied = new Response(init.body, init);
+    assert.equal(proxied.status, 200);
+    assert.equal(proxied.headers.get("cache-control"), "no-store, max-age=0");
+    assert.match(proxied.headers.get("content-type") || "", /application\/json/);
+    assert.deepEqual(await proxied.json(), payload);
   });
 });

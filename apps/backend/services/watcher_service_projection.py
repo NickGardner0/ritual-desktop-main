@@ -488,6 +488,23 @@ async def sync_to_computer_use_habit_impl(
                 start_date=day,
                 end_date=day,
             )
+            aggregate_state = str(summary.get("state") or "empty")
+            if aggregate_state in {"sync_pending", "unavailable"}:
+                reason = str(summary.get("empty_reason") or f"aggregation_{aggregate_state}")
+                logger.info(
+                    "Skipping computer-use projection for %s because aggregate state is %s (%s)",
+                    day,
+                    aggregate_state,
+                    reason,
+                )
+                return {
+                    "success": False,
+                    "synced": False,
+                    "state": aggregate_state,
+                    "reason": reason,
+                    "error": "Computer activity aggregation is not ready.",
+                    "day": day,
+                }
             top_domains = await service.get_top_domains(
                 user_id=user_id,
                 start_date=day,
@@ -924,11 +941,25 @@ async def sync_to_computer_use_habit_range_impl(
 
         range_start = start_dt.strftime("%Y-%m-%d")
         range_end = end_dt.strftime("%Y-%m-%d")
-        daily_rows = await service.get_daily_computer_time(
+        aggregate = await service.get_computer_activity_snapshot(
             user_id=user_id,
             start_date=range_start,
             end_date=range_end,
         )
+        aggregate_state = str(aggregate.get("state") or "empty")
+        if aggregate_state in {"sync_pending", "unavailable"}:
+            reason = str(aggregate.get("empty_reason") or f"aggregation_{aggregate_state}")
+            return {
+                "success": False,
+                "synced": False,
+                "state": aggregate_state,
+                "reason": reason,
+                "error": "Computer activity aggregation is not ready.",
+                "requested_days": total_days,
+                "synced_days": 0,
+                "results": [],
+            }
+        daily_rows = list(aggregate.get("daily") or [])
         daily_by_day = {
             str(row.get("day") or ""): row
             for row in daily_rows

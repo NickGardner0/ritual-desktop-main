@@ -1,0 +1,25 @@
+{
+  "$schema": "../../../node_modules/@tauri-apps/cli/schema.json",
+  "productName": "Ritual QA",
+  "identifier": "com.ritual.desktop.qa",
+  "mainBinaryName": "Ritual QA",
+  "app": {
+    "security": {
+      "assetProtocol": {
+        "enable": true,
+        "scope": [
+          "$HOME/.ritual-qa/**",
+          "$HOME/.ritual-qa/thumbnails/**",
+          "$HOME/.ritual-qa/video/**"
+        ]
+      }
+    }
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["com.ritual.desktop.qa"]
+      }
+    }
+  }
+}

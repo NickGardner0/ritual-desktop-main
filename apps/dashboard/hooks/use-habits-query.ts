@@ -1,43 +1,22 @@
-/**
- * React Query Hooks for Habits
- * 
- * These hooks provide:
- * - Automatic caching
- * - Canonical post-write snapshots
- * - Background refetching
- * - Deduplication of requests
- * - Analytics tracking via OpenPanel
- * 
- * Inspired by Midday's approach
- */
-
 'use client';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useUser, useAuth } from '@clerk/nextjs';
+import { useUser, useAuth } from '@/lib/desktop-session';
 import { useMemo } from 'react';
+import type { CreateHabitInput, HabitRecord } from '@ritual/shared-contracts';
 import type { Habit, HabitLog } from '@/contexts/habits-context.types';
 import { useAnalytics } from '@/lib/analytics';
 import { QUERY_POLICY } from '@/lib/query-policies';
-import {
-  applyCanonicalOverviewSnapshot,
-  invalidateAfterHabitWrite,
-  invalidateHabitData,
-} from '@/lib/query-invalidation';
-import {
-  habitKeys as canonicalHabitKeys,
-  habitLogKeys as canonicalHabitLogKeys,
-} from '@/lib/dashboard/query-keys';
-import {
-  clearReadConsistencyRequirement,
-  getReadConsistencyHeaders,
-  markReadConsistencyRequired,
-  shouldForceFreshRead,
-} from '@/lib/read-consistency';
+import { applyCanonicalOverviewSnapshot, applyOptimisticOverviewStatDelta, invalidateAfterHabitWrite, invalidateHabitData } from '@/lib/query-invalidation';
+import { habitKeys as canonicalHabitKeys, habitLogKeys as canonicalHabitLogKeys } from '@/lib/dashboard/query-keys';
+import { clearReadConsistencyRequirement, markReadConsistencyRequired, shouldForceFreshRead } from '@/lib/read-consistency';
+import { apiOperationWithAuth } from '@/lib/api/client';
+import { BackendClientError } from '@/lib/api/generated/backend-client';
+import { putLocalVaultHabit, putLocalVaultHabitLog, putLocalVaultHabitWriteOutboxItem, readLocalVaultHabitLogs, readLocalVaultHabits, readLocalVaultHabitWriteOutboxItems } from '@/lib/privacy/habit-vault-adapter';
+import { buildHabitCreateOutboxItem, buildHabitLogCreateOutboxItem, buildOptimisticHabit, buildOptimisticHabitLog, createHabitClientEventId, getHabitLogOptimisticDelta, getHabitLogOptimisticUnit, markOutboxItemFailed, markOutboxItemSynced, mergeHabitLogsWithOutbox, mergeHabitsWithOutbox, upsertById, type HabitLogMutationInput, type HabitWriteOutboxItem, type OptimisticHabit, type OptimisticHabitLog } from '@/lib/habits/local-first-writes';
+import { useHabitWriteOutboxSync } from './use-habit-outbox-sync';
+import { playInteractionSound } from '@/lib/interaction-sounds';
 
-const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
-const LOCAL_HABITS_API = '/api/habits';
-const LOCAL_HABIT_LOGS_API = '/api/habit-logs';
 const HABITS_SNAPSHOT_STORAGE_KEY = 'ritual:habits-snapshot:v1';
 const HABIT_LOGS_SNAPSHOT_STORAGE_KEY = 'ritual:habit-logs-snapshot:v1';
 const SNAPSHOT_MAX_AGE_MS = 1000 * 60 * 60 * 24 * 7;
@@ -45,14 +24,18 @@ const SNAPSHOT_MAX_AGE_MS = 1000 * 60 * 60 * 24 * 7;
 export const habitKeys = canonicalHabitKeys;
 export const habitLogKeys = canonicalHabitLogKeys;
 
-type PersistedSnapshot<T> = {
-  updatedAt: number;
-  data: T;
+type PersistedSnapshot<T> = { updatedAt: number; data: T };
+type SnapshotEnvelope<T> = { byUser?: Record<string, PersistedSnapshot<T>> };
+type MutationErrorWithStatus = Error & { status?: number };
+type BatchLogResult = {
+  success?: boolean;
+  results?: Array<{ success?: boolean; habit_name?: string }>;
+  error?: string;
+  message?: string;
+  overview_snapshot?: unknown;
 };
-
-type SnapshotEnvelope<T> = {
-  byUser?: Record<string, PersistedSnapshot<T>>;
-};
+type LogHabitMutationContext = { previousLogs?: HabitLog[]; rollbackOverview?: () => void; optimisticLog?: OptimisticHabitLog; outboxItem?: HabitWriteOutboxItem; hadLocalVaultLogs?: boolean };
+type CreateHabitMutationContext = { previousHabits?: Habit[]; optimisticHabit?: OptimisticHabit; outboxItem?: HabitWriteOutboxItem; hadLocalVaultHabits?: boolean };
 
 function getSuccessfulQuerySnapshot<T>(
   queryClient: ReturnType<typeof useQueryClient>,
@@ -127,49 +110,27 @@ function persistSnapshot<T>(
   }
 }
 
+function getMutationErrorStatus(error: unknown): number | undefined {
+  if (error instanceof BackendClientError) return error.status;
+  return typeof (error as MutationErrorWithStatus | undefined)?.status === 'number'
+    ? (error as MutationErrorWithStatus).status
+    : undefined;
+}
+
+function shouldRollbackOptimisticWrite(error: unknown): boolean {
+  const status = getMutationErrorStatus(error);
+  return Boolean(status && status >= 400 && status < 500);
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 export function clearPersistedHabitSnapshots(): void {
   if (typeof window === 'undefined') return;
 
   window.localStorage.removeItem(HABITS_SNAPSHOT_STORAGE_KEY);
   window.localStorage.removeItem(HABIT_LOGS_SNAPSHOT_STORAGE_KEY);
-}
-
-/**
- * Fetch with automatic retry on 401/403 using a fresh token.
- * Reduces stale-token errors on initial load or after app was backgrounded.
- */
-async function fetchWithAuthRetry(
-  url: string,
-  getToken: (opts?: { skipCache?: boolean }) => Promise<string | null>,
-  options?: RequestInit
-): Promise<Response> {
-  const token = await getToken();
-  if (!token) throw new Error('No auth token available');
-
-  let response = await fetch(url, {
-    ...options,
-    headers: {
-      ...options?.headers,
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-  });
-
-  if ((response.status === 401 || response.status === 403) && response.url.includes('/api/')) {
-    const freshToken = await getToken({ skipCache: true });
-    if (freshToken) {
-      response = await fetch(url, {
-        ...options,
-        headers: {
-          ...options?.headers,
-          Authorization: `Bearer ${freshToken}`,
-          'Content-Type': 'application/json',
-        },
-      });
-    }
-  }
-
-  return response;
 }
 
 /**
@@ -182,7 +143,9 @@ async function fetchWithAuthRetry(
  */
 export function useHabitsQuery() {
   const { user, isLoaded } = useUser();
+  const { getToken } = useAuth();
   const queryClient = useQueryClient();
+  useHabitWriteOutboxSync();
   const bypassPersistedSnapshot = useMemo(
     () => shouldForceFreshRead(user?.id),
     [user?.id],
@@ -201,36 +164,42 @@ export function useHabitsQuery() {
     queryFn: async () => {
       if (!user) throw new Error('No user');
 
+      const outboxItems = await readLocalVaultHabitWriteOutboxItems(user.id);
+      const localVaultHabits = await readLocalVaultHabits(user.id);
+      if (localVaultHabits) {
+        const mergedHabits = mergeHabitsWithOutbox(localVaultHabits, outboxItems);
+        persistSnapshot(HABITS_SNAPSHOT_STORAGE_KEY, mergedHabits, user.id);
+        clearReadConsistencyRequirement(user.id);
+        return mergedHabits;
+      }
+
       if (process.env.NODE_ENV !== 'production') { console.log('🔄 [React Query] Fetching habits for user:', user.primaryEmailAddress?.emailAddress); }
 
       try {
-        const response = await fetch(LOCAL_HABITS_API, {
-          cache: 'no-store',
-          credentials: 'include',
-          headers: {
-            ...getReadConsistencyHeaders(user.id),
-          },
-        });
-
-        if (!response.ok) {
-          throw new Error(`Failed to fetch habits: ${response.status}`);
-        }
-
-        const habits = await response.json();
-        persistSnapshot(HABITS_SNAPSHOT_STORAGE_KEY, habits as Habit[], user.id);
+        const habits = await apiOperationWithAuth(
+          'get_habits_api_habits_get',
+          getToken,
+          {},
+          user.id,
+        );
+        const mergedHabits = mergeHabitsWithOutbox(habits as Habit[], outboxItems);
+        persistSnapshot(HABITS_SNAPSHOT_STORAGE_KEY, mergedHabits, user.id);
         clearReadConsistencyRequirement(user.id);
-        if (process.env.NODE_ENV !== 'production') { console.log('✅ [React Query] Habits fetched:', habits.length); }
-        return habits as Habit[];
+        if (process.env.NODE_ENV !== 'production') { console.log('✅ [React Query] Habits fetched:', mergedHabits.length); }
+        return mergedHabits;
       } catch (error) {
         if (fallbackSnapshot?.data) {
           console.warn('⚠️ [React Query] Falling back to persisted habits snapshot:', error);
-          return fallbackSnapshot.data;
+          return mergeHabitsWithOutbox(fallbackSnapshot.data, outboxItems);
         }
         throw error;
       }
     },
     initialData: bypassPersistedSnapshot ? undefined : fallbackSnapshot?.data,
     initialDataUpdatedAt: bypassPersistedSnapshot ? undefined : fallbackSnapshot?.updatedAt,
+    placeholderData: bypassPersistedSnapshot
+      ? undefined
+      : (previous) => previous ?? fallbackSnapshot?.data,
     enabled: isLoaded && !!user?.id,
     staleTime: QUERY_POLICY.optimisticEntity.staleTime,
     gcTime: QUERY_POLICY.optimisticEntity.gcTime,
@@ -246,6 +215,7 @@ export function useHabitLogsQuery({
   enabled?: boolean;
 } = {}) {
   const { user, isLoaded } = useUser();
+  const { getToken } = useAuth();
   const queryClient = useQueryClient();
   const bypassPersistedSnapshot = useMemo(
     () => shouldForceFreshRead(user?.id),
@@ -269,41 +239,47 @@ export function useHabitLogsQuery({
     queryFn: async () => {
       if (!user) throw new Error('No user');
 
+      const outboxItems = await readLocalVaultHabitWriteOutboxItems(user.id);
+      const localVaultLogs = await readLocalVaultHabitLogs(user.id);
+      if (localVaultLogs) {
+        const mergedLogs = mergeHabitLogsWithOutbox(localVaultLogs, outboxItems);
+        persistSnapshot(HABIT_LOGS_SNAPSHOT_STORAGE_KEY, mergedLogs, user.id);
+        clearReadConsistencyRequirement(user.id);
+        return mergedLogs;
+      }
+
       if (process.env.NODE_ENV !== 'production') { console.log('🔄 [React Query] Fetching habit logs...'); }
 
       try {
-        const response = await fetch(LOCAL_HABIT_LOGS_API, {
-          cache: 'no-store',
-          credentials: 'include',
-          headers: {
-            ...getReadConsistencyHeaders(user.id),
-          },
-        });
-
-        if (!response.ok) {
-          throw new Error(`Failed to fetch habit logs: ${response.status}`);
-        }
-
-        const logs = await response.json();
-        const processedLogs = logs.map((log: any) => ({
+        const logs = await apiOperationWithAuth(
+          'get_all_habit_logs_api_habit_logs_get',
+          getToken,
+          {},
+          user.id,
+        );
+        const processedLogs = logs.map((log) => ({
           ...log,
           duration: log.duration || 0,
         }));
 
-        persistSnapshot(HABIT_LOGS_SNAPSHOT_STORAGE_KEY, processedLogs as HabitLog[], user.id);
+        const mergedLogs = mergeHabitLogsWithOutbox(processedLogs as HabitLog[], outboxItems);
+        persistSnapshot(HABIT_LOGS_SNAPSHOT_STORAGE_KEY, mergedLogs, user.id);
         clearReadConsistencyRequirement(user.id);
-        if (process.env.NODE_ENV !== 'production') { console.log('✅ [React Query] Habit logs fetched:', processedLogs.length); }
-        return processedLogs as HabitLog[];
+        if (process.env.NODE_ENV !== 'production') { console.log('✅ [React Query] Habit logs fetched:', mergedLogs.length); }
+        return mergedLogs;
       } catch (error) {
         if (fallbackSnapshot?.data) {
           console.warn('⚠️ [React Query] Falling back to persisted habit logs snapshot:', error);
-          return fallbackSnapshot.data;
+          return mergeHabitLogsWithOutbox(fallbackSnapshot.data, outboxItems);
         }
         throw error;
       }
     },
     initialData: bypassPersistedSnapshot ? undefined : fallbackSnapshot?.data,
     initialDataUpdatedAt: bypassPersistedSnapshot ? undefined : fallbackSnapshot?.updatedAt,
+    placeholderData: bypassPersistedSnapshot
+      ? undefined
+      : (previous) => previous ?? fallbackSnapshot?.data,
     enabled: enabled && isLoaded && !!user?.id,
     // Habit logs can grow very large, so keep them warm for longer and rely on
     // explicit invalidation after mutations instead of constant background
@@ -329,39 +305,53 @@ export function useLogHabitMutation() {
   const { getToken } = useAuth();
   const { trackHabitLogged } = useAnalytics();
 
-  return useMutation({
-    mutationFn: async (habitLog: Omit<HabitLog, 'id'> & { habit_name?: string }) => {
-      const token = await getToken();
+  return useMutation<any, Error, HabitLogMutationInput, LogHabitMutationContext>({
+    mutationFn: async (habitLog) => {
+      if (!user?.id) throw new Error('No user');
+      habitLog.client_event_id = habitLog.client_event_id || createHabitClientEventId({
+        kind: 'habit_log_create',
+        entityId: habitLog.habit_id,
+        date: habitLog.date,
+      });
       if (process.env.NODE_ENV !== 'production') { console.log('📝 [React Query] Logging habit:', habitLog); }
 
-      const response = await fetch('/api/logs/batch', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({
-          items: [{
-            habit_id: habitLog.habit_id,
-            duration: habitLog.duration,
-            amount: habitLog.amount,
-            date: habitLog.date,
-            completed_at: habitLog.completed_at,
-            unit: habitLog.unit,
-            source: 'manual',
-            notes: habitLog.notes,
-          }],
-          client_event_id: `${habitLog.habit_id}:${habitLog.date}:${Date.now()}:${Math.random().toString(36).slice(2, 10)}`,
-        }),
-      });
-
-      const result = await response.json().catch(() => null);
-      if (!response.ok) {
-        console.error('❌ Failed to log habit:', result);
-        throw new Error(result?.error || result?.detail?.message || `Failed to log habit: ${response.status}`);
+      let result: BatchLogResult;
+      try {
+        result = await apiOperationWithAuth(
+          'batch_log_habits_api_logs_batch_post',
+          getToken,
+          {
+            body: {
+              items: [{
+                habit_id: habitLog.habit_id,
+                duration: habitLog.duration,
+                amount: habitLog.amount,
+                date: habitLog.date,
+                completed_at: habitLog.completed_at,
+                unit: habitLog.unit,
+                source: 'manual',
+                notes: habitLog.notes,
+              }],
+              client_event_id: habitLog.client_event_id,
+            },
+          },
+          user.id,
+        ) as BatchLogResult;
+      } catch (error) {
+        if (error instanceof BackendClientError) {
+          let parsed: BatchLogResult | null = null;
+          try { parsed = JSON.parse(error.responseBody) as BatchLogResult; } catch { parsed = null; }
+          console.error('❌ Failed to log habit:', parsed);
+          const failed = new Error(parsed?.error || `Failed to log habit: ${error.status}`) as MutationErrorWithStatus;
+          failed.status = error.status;
+          throw failed;
+        }
+        throw error;
       }
       if (!result?.success || !result?.results?.[0]?.success) {
-        throw new Error(result?.error || result?.message || 'Failed to log habit');
+        const error = new Error(result?.error || result?.message || 'Failed to log habit') as MutationErrorWithStatus;
+        error.status = 400;
+        throw error;
       }
       if (process.env.NODE_ENV !== 'production') { console.log('✅ Habit logged and synced to Tinybird!'); }
 
@@ -376,11 +366,114 @@ export function useLogHabitMutation() {
       return result;
     },
 
-    onSuccess: async (result) => {
+    onMutate: async (habitLog) => {
+      if (!user?.id) return {};
+
+      const userId = user.id;
+      const queryKey = habitLogKeys.list(userId);
+      const habits = queryClient.getQueryData<Habit[]>(habitKeys.list(userId)) || [];
+      const habit = habits.find((candidate) => candidate.id === habitLog.habit_id);
+      const clientEventId = habitLog.client_event_id || createHabitClientEventId({
+        kind: 'habit_log_create',
+        entityId: habitLog.habit_id,
+        date: habitLog.date,
+      });
+      habitLog.client_event_id = clientEventId;
+
+      const optimisticLog = buildOptimisticHabitLog(habitLog, userId, { clientEventId });
+      const outboxItem = buildHabitLogCreateOutboxItem(userId, habitLog, optimisticLog);
+
+      await queryClient.cancelQueries({ queryKey });
+      const previousLogs = queryClient.getQueryData<HabitLog[]>(queryKey);
+      const nextLogs = upsertById(previousLogs || [], optimisticLog);
+      queryClient.setQueryData<HabitLog[]>(queryKey, nextLogs);
+      persistSnapshot(HABIT_LOGS_SNAPSHOT_STORAGE_KEY, nextLogs, userId);
+
+      const rollbackOverview = optimisticLog.status === 'completed'
+        ? applyOptimisticOverviewStatDelta(queryClient, userId, {
+            habitId: optimisticLog.habit_id,
+            habitName: habitLog.habit_name || habit?.name || 'Habit',
+            unit: getHabitLogOptimisticUnit(optimisticLog, habit),
+            delta: getHabitLogOptimisticDelta(optimisticLog),
+            date: optimisticLog.date,
+          })
+        : undefined;
+
+      const [hadLocalVaultLogs] = await Promise.all([
+        readLocalVaultHabitLogs(userId).then((logs) => Boolean(logs?.length)).catch(() => false),
+        putLocalVaultHabitWriteOutboxItem(userId, outboxItem).catch((error) => {
+          console.warn('⚠️ [React Query] Failed to persist local habit log outbox item:', error);
+          return null;
+        }),
+      ]);
+
+      if (process.env.NODE_ENV !== 'production') { console.log('⚡ [React Query] Optimistic habit log applied locally.'); }
+      return {
+        previousLogs,
+        rollbackOverview,
+        optimisticLog,
+        outboxItem,
+        hadLocalVaultLogs,
+      };
+    },
+
+    onError: async (err, _vars, context) => {
+      console.error('❌ [React Query] Log habit failed:', err);
+      if (shouldRollbackOptimisticWrite(err)) {
+        if (context?.previousLogs) {
+          queryClient.setQueryData(habitLogKeys.list(user?.id || 'anonymous'), context.previousLogs);
+          persistSnapshot(HABIT_LOGS_SNAPSHOT_STORAGE_KEY, context.previousLogs, user?.id);
+        }
+        context?.rollbackOverview?.();
+      } else if (user?.id && context?.outboxItem) {
+        await putLocalVaultHabitWriteOutboxItem(
+          user.id,
+          markOutboxItemFailed(context.outboxItem, getErrorMessage(err)),
+        ).catch((error) => {
+          console.warn('⚠️ [React Query] Failed to mark local habit log outbox item failed:', error);
+        });
+      }
+    },
+
+    onSuccess: async (result, _vars, context) => {
+      playInteractionSound('habitLogCreated');
       markReadConsistencyRequired(user?.id);
       if (user?.id && result?.overview_snapshot?.overviewStats) {
         applyCanonicalOverviewSnapshot(queryClient, user.id, result.overview_snapshot);
       }
+
+      if (user?.id && context?.optimisticLog) {
+        const serverLogId = result?.results?.[0]?.log_id;
+        const syncedLog: HabitLog = {
+          ...context.optimisticLog,
+          id: serverLogId || context.optimisticLog.id,
+          duration: context.optimisticLog.duration || 0,
+        };
+        const queryKey = habitLogKeys.list(user.id);
+        const previousLogs = queryClient.getQueryData<HabitLog[]>(queryKey) || [];
+        const nextLogs = upsertById(
+          previousLogs.filter((log) => log.id !== context.optimisticLog?.id),
+          syncedLog,
+        );
+        queryClient.setQueryData<HabitLog[]>(queryKey, nextLogs);
+        persistSnapshot(HABIT_LOGS_SNAPSHOT_STORAGE_KEY, nextLogs, user.id);
+
+        if (context.hadLocalVaultLogs) {
+          void putLocalVaultHabitLog(user.id, syncedLog).catch((error) => {
+            console.warn('⚠️ [React Query] Failed to persist synced habit log to local vault:', error);
+          });
+        }
+      }
+
+      if (user?.id && context?.outboxItem) {
+        await putLocalVaultHabitWriteOutboxItem(
+          user.id,
+          markOutboxItemSynced(context.outboxItem),
+        ).catch((error) => {
+          console.warn('⚠️ [React Query] Failed to mark local habit log outbox item synced:', error);
+        });
+      }
+
       await invalidateAfterHabitWrite(queryClient, user?.id || 'anonymous');
       if (process.env.NODE_ENV !== 'production') { console.log('🔄 [React Query] Canonical habit data invalidated after log write.'); }
     },
@@ -396,39 +489,116 @@ export function useCreateHabitMutation() {
   const { getToken } = useAuth();
   const { trackHabitCreated } = useAnalytics();
 
-  return useMutation({
-    mutationFn: async (habitData: any) => {
+  return useMutation<HabitRecord, Error, CreateHabitInput, CreateHabitMutationContext>({
+    mutationFn: async (habitData: CreateHabitInput): Promise<HabitRecord> => {
+      if (!user?.id) throw new Error('No user');
       if (process.env.NODE_ENV !== 'production') { console.log('➕ [React Query] Creating habit:', habitData); }
 
-      const response = await fetchWithAuthRetry(
-        `${PYTHON_API_BASE}/api/habits`,
-        getToken,
-        {
-          method: 'POST',
-          body: JSON.stringify(habitData),
+      try {
+        return await apiOperationWithAuth(
+          'create_habit_api_habits_post',
+          getToken,
+          { body: habitData },
+          user.id,
+        ) as HabitRecord;
+      } catch (error) {
+        if (error instanceof BackendClientError) {
+          let detail = error.responseBody;
+          try {
+            const parsed = JSON.parse(error.responseBody) as { detail?: unknown };
+            if (typeof parsed?.detail === 'string') detail = parsed.detail;
+          } catch {
+            /* use raw text */
+          }
+          const failed = new Error(
+            detail ? `Failed to create habit (${error.status}): ${detail}` : `Failed to create habit: ${error.status}`,
+          ) as MutationErrorWithStatus;
+          failed.status = error.status;
+          throw failed;
         }
-      );
-
-      if (!response.ok) {
-        const errText = await response.text().catch(() => '');
-        let detail = errText;
-        try {
-          const j = JSON.parse(errText) as { detail?: unknown };
-          if (typeof j?.detail === 'string') detail = j.detail;
-        } catch {
-          /* use raw text */
-        }
-        throw new Error(
-          detail ? `Failed to create habit (${response.status}): ${detail}` : `Failed to create habit: ${response.status}`
-        );
+        throw error;
       }
-
-      return response.json();
     },
 
-    onSuccess: (data) => {
+    onMutate: async (habitData) => {
+      if (!user?.id) return {};
+
+      const userId = user.id;
+      const queryKey = habitKeys.list(userId);
+      const optimisticHabit = buildOptimisticHabit(habitData, userId);
+      const outboxItem = buildHabitCreateOutboxItem(userId, habitData, optimisticHabit);
+
+      await queryClient.cancelQueries({ queryKey });
+      const previousHabits = queryClient.getQueryData<Habit[]>(queryKey);
+      const nextHabits = upsertById(previousHabits || [], optimisticHabit);
+      queryClient.setQueryData<Habit[]>(queryKey, nextHabits);
+      persistSnapshot(HABITS_SNAPSHOT_STORAGE_KEY, nextHabits, userId);
+
+      const [hadLocalVaultHabits] = await Promise.all([
+        readLocalVaultHabits(userId).then((habits) => Boolean(habits?.length)).catch(() => false),
+        putLocalVaultHabitWriteOutboxItem(userId, outboxItem).catch((error) => {
+          console.warn('⚠️ [React Query] Failed to persist local habit create outbox item:', error);
+          return null;
+        }),
+      ]);
+
+      if (process.env.NODE_ENV !== 'production') { console.log('⚡ [React Query] Optimistic habit create applied locally.'); }
+      return {
+        previousHabits,
+        optimisticHabit,
+        outboxItem,
+        hadLocalVaultHabits,
+      };
+    },
+
+    onError: async (err, _vars, context) => {
+      console.error('❌ [React Query] Create habit failed:', err);
+      if (shouldRollbackOptimisticWrite(err)) {
+        if (context?.previousHabits) {
+          queryClient.setQueryData(habitKeys.list(user?.id || 'anonymous'), context.previousHabits);
+          persistSnapshot(HABITS_SNAPSHOT_STORAGE_KEY, context.previousHabits, user?.id);
+        }
+      } else if (user?.id && context?.outboxItem) {
+        await putLocalVaultHabitWriteOutboxItem(
+          user.id,
+          markOutboxItemFailed(context.outboxItem, getErrorMessage(err)),
+        ).catch((error) => {
+          console.warn('⚠️ [React Query] Failed to mark local habit create outbox item failed:', error);
+        });
+      }
+    },
+
+    onSuccess: async (data, _vars, context) => {
       if (process.env.NODE_ENV !== 'production') { console.log('✅ [React Query] Habit created, refetching...'); }
       markReadConsistencyRequired(user?.id);
+
+      if (user?.id && context?.optimisticHabit) {
+        const canonicalHabit = data as Habit;
+        const queryKey = habitKeys.list(user.id);
+        const previousHabits = queryClient.getQueryData<Habit[]>(queryKey) || [];
+        const nextHabits = upsertById(
+          previousHabits.filter((habit) => habit.id !== context.optimisticHabit?.id),
+          canonicalHabit,
+        );
+        queryClient.setQueryData<Habit[]>(queryKey, nextHabits);
+        persistSnapshot(HABITS_SNAPSHOT_STORAGE_KEY, nextHabits, user.id);
+
+        if (context.hadLocalVaultHabits) {
+          void putLocalVaultHabit(user.id, canonicalHabit).catch((error) => {
+            console.warn('⚠️ [React Query] Failed to persist synced habit to local vault:', error);
+          });
+        }
+      }
+
+      if (user?.id && context?.outboxItem) {
+        await putLocalVaultHabitWriteOutboxItem(
+          user.id,
+          markOutboxItemSynced(context.outboxItem),
+        ).catch((error) => {
+          console.warn('⚠️ [React Query] Failed to mark local habit create outbox item synced:', error);
+        });
+      }
+
       void invalidateHabitData(queryClient, user?.id || 'anonymous');
       
       // Track analytics event
@@ -458,25 +628,36 @@ export function useUpdateHabitMutation() {
       habitId: string;
       updates: Partial<Habit>;
     }) => {
-      const response = await fetchWithAuthRetry(
-        `${PYTHON_API_BASE}/api/habits/${habitId}`,
-        getToken,
-        {
-          method: 'PUT',
-          body: JSON.stringify(updates),
-        },
-      );
-
-      if (!response.ok) {
-        const errText = await response.text().catch(() => '');
-        throw new Error(
-          errText
-            ? `Failed to update habit (${response.status}): ${errText}`
-            : `Failed to update habit: ${response.status}`,
-        );
+      if (!user?.id) throw new Error('No user');
+      try {
+        return await apiOperationWithAuth(
+          'update_habit_api_habits__habit_id__put',
+          getToken,
+          {
+            pathParams: { habit_id: habitId },
+            body: {
+              name: updates.name,
+              category: updates.category,
+              icon: updates.icon,
+              integration_source: updates.integration_source,
+              is_custom: updates.is_custom,
+              metric_type: updates.metric_type,
+              unit_type: updates.unit_type,
+              sensor_type: updates.sensor_type,
+            },
+          },
+          user.id,
+        ) as Habit;
+      } catch (error) {
+        if (error instanceof BackendClientError) {
+          throw new Error(
+            error.responseBody
+              ? `Failed to update habit (${error.status}): ${error.responseBody}`
+              : `Failed to update habit: ${error.status}`,
+          );
+        }
+        throw error;
       }
-
-      return response.json() as Promise<Habit>;
     },
 
     onMutate: async ({ habitId, updates }) => {
@@ -531,18 +712,21 @@ export function useDeleteHabitMutation() {
 
   return useMutation({
     mutationFn: async ({ habitId, habitName, category }: { habitId: string; habitName?: string; category?: string }) => {
-      const token = await getToken();
+      if (!user?.id) throw new Error('No user');
       if (process.env.NODE_ENV !== 'production') { console.log('🗑️ [React Query] Deleting habit:', habitId); }
 
-      const response = await fetch(`${PYTHON_API_BASE}/api/habits/${habitId}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to delete habit: ${response.status}`);
+      try {
+        await apiOperationWithAuth(
+          'delete_habit_api_habits__habit_id__delete',
+          getToken,
+          { pathParams: { habit_id: habitId } },
+          user.id,
+        );
+      } catch (error) {
+        if (error instanceof BackendClientError) {
+          throw new Error(`Failed to delete habit: ${error.status}`);
+        }
+        throw error;
       }
 
       return { habitId, habitName, category };

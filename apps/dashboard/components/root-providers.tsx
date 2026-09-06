@@ -1,9 +1,9 @@
 'use client';
 
-import { ReactNode, useEffect, useState } from 'react';
-import { usePathname } from 'next/navigation';
+import { ReactNode, useEffect, useRef, useState } from 'react';
+import { usePathname } from '@/lib/app-navigation';
 import { ThemeProvider } from '@/components/theme-provider';
-import { ClerkProvider } from '@clerk/nextjs';
+import { ClerkProvider } from '@/lib/desktop-session';
 import { QueryProvider } from '@/components/providers';
 import { HabitsProvider } from '@/contexts/HabitsContext';
 import { OpenPanelProvider } from '@/components/openpanel-provider';
@@ -11,8 +11,14 @@ import { PlatformDetector } from '@/components/platform-detector';
 import { TransparencyProbe } from '@/components/transparency-probe';
 import { DesktopAuthDeepLinkBridge } from '@/components/desktop-auth-deep-link-bridge';
 import { DesktopAssetRecoveryBridge } from '@/components/desktop-asset-recovery-bridge';
-import { desktopFrontendReady } from '@/lib/desktop-runtime';
-import { isTauri, showMainWindow } from '@/lib/tauri-utils';
+import { ChromeAppearanceProvider } from '@/contexts/ChromeAppearanceContext';
+import { DesktopCapabilitiesProvider, getDesktopCapabilities, useDesktopCapabilities } from '@/lib/desktop-capabilities';
+import { desktopFrontendReady, getDesktopRuntimeState, recordDesktopShellEvent, recordLaunchMilestone, summarizeLaunchMilestones } from '@/lib/native-gateway';
+import { VoiceSessionProvider } from '@/components/voice-session-provider';
+import { InteractionSounds } from '@/components/interaction-sounds';
+import { DeferredFonts } from '@/components/deferred-fonts';
+import { DeferredChrome } from '@/components/deferred-chrome';
+import { DesktopWindowResizeEdges } from '@/components/desktop-window-resize-edges';
 
 /**
  * Root Providers Wrapper
@@ -21,9 +27,42 @@ import { isTauri, showMainWindow } from '@/lib/tauri-utils';
  * Separated from layout.tsx to allow the layout to remain a Server Component.
  */
 export function RootProviders({ children }: { children: ReactNode }) {
+  return (
+    <DesktopCapabilitiesProvider>
+      <RootProvidersInner>{children}</RootProvidersInner>
+    </DesktopCapabilitiesProvider>
+  );
+}
+
+function RootProvidersInner({ children }: { children: ReactNode }) {
+  const { isDesktop } = useDesktopCapabilities();
   const pathname = usePathname();
   const isDesktopBootstrap = pathname === '/desktop/bootstrap';
-  const isDesktopShell = typeof window !== 'undefined' && isTauri();
+  const isDesktopShell = typeof window !== 'undefined' && isDesktop;
+  const shellBootstrapRecordedRef = useRef(false);
+
+  useEffect(() => {
+    recordLaunchMilestone('providers_mounted', { path: pathname, desktop: isDesktop });
+    if (isDesktop && !shellBootstrapRecordedRef.current) {
+      shellBootstrapRecordedRef.current = true;
+      recordLaunchMilestone('shell_bootstrap', { path: pathname, desktop: true });
+    }
+  }, [isDesktop, pathname]);
+
+  const isVoiceHudWindow = () => {
+    if (typeof window === 'undefined') return false;
+    const params = new URLSearchParams(window.location.search);
+    return params.get('ritual_voice_hud_window') === '1';
+  };
+  const isAuxiliaryDesktopWindow = () => {
+    if (typeof window === 'undefined') return false;
+    const params = new URLSearchParams(window.location.search);
+    return (
+      params.get('ritual_sidebar_window') === '1' ||
+      params.get('ritual_settings_window') === '1' ||
+      params.get('ritual_voice_hud_window') === '1'
+    );
+  };
   const [isTransparencyProbe] = useState(() => {
     if (typeof window === 'undefined') return false;
     const queryValue = new URLSearchParams(window.location.search).get('ritual_transparency_probe');
@@ -32,9 +71,19 @@ export function RootProviders({ children }: { children: ReactNode }) {
   });
   const [isMainGlassEnabled] = useState(() => {
     if (typeof window === 'undefined') return false;
-    const queryValue = new URLSearchParams(window.location.search).get('ritual_main_glass');
-    const storageValue = window.sessionStorage.getItem('ritual_main_glass');
-    return isTauri() || queryValue === '1' || storageValue === '1';
+    if (isAuxiliaryDesktopWindow()) return false;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('ritual_main_glass') === '0') return false;
+    return (
+      params.get('ritual_main_glass') === '1' ||
+      document.documentElement.dataset.mainGlass === '1'
+    );
+  });
+  const [isGlassChromeEnabled] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    if (isAuxiliaryDesktopWindow()) return false;
+    const params = new URLSearchParams(window.location.search);
+    return params.get('ritual_glass_chrome') === '1';
   });
   const [isSidebarCaptureMode, setIsSidebarCaptureMode] = useState(() => {
     if (typeof window === 'undefined') return false;
@@ -43,44 +92,91 @@ export function RootProviders({ children }: { children: ReactNode }) {
     return false;
   });
 
-  // Show the Tauri window once React has mounted and content is ready
-  // This prevents the "tiny window flash" issue on macOS
+  // HTML and the webview init script already show the window. Record paint
+  // without waiting two animation frames.
   useEffect(() => {
     if (!isDesktopShell) {
       return;
     }
 
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      if (params.get('ritual_sidebar_window') === '1') {
-        return;
-      }
+    if (isAuxiliaryDesktopWindow()) {
+      return;
     }
 
     if (isDesktopBootstrap) {
       return;
     }
 
-    // Small delay to ensure DOM is painted
-    const timer = setTimeout(() => {
-      showMainWindow();
-    }, 50);
-    return () => clearTimeout(timer);
-  }, [isDesktopShell, isDesktopBootstrap, pathname]);
+    recordLaunchMilestone('shell_paint', { desktop: true });
+  }, [isDesktopShell, isDesktopBootstrap]);
 
   useEffect(() => {
     if (!isDesktopShell || isDesktopBootstrap) {
       return;
     }
 
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      if (params.get('ritual_sidebar_window') === '1') {
-        return;
-      }
+    if (isAuxiliaryDesktopWindow()) {
+      return;
     }
 
-    void desktopFrontendReady();
+    void desktopFrontendReady().then(async () => {
+      const runtimeState = await getDesktopRuntimeState();
+      recordLaunchMilestone('native_ready', {
+        webview_rss_bytes: runtimeState?.process?.webviewRssBytes ?? null,
+        watcher_rss_bytes: runtimeState?.process?.watcherRssBytes ?? null,
+        watcher_pid: runtimeState?.process?.watcherPid ?? null,
+        watcher_rss_sample_state: runtimeState?.process?.watcherRssSampleState ?? 'unavailable',
+        watcher_rss_reason: runtimeState?.process?.watcherRssReason ?? 'runtime_state_unavailable',
+        watcher_state: runtimeState?.watcher.state ?? 'failed',
+      });
+      const summary = summarizeLaunchMilestones();
+      if (summary) {
+        void recordDesktopShellEvent('launch:summary', 'info', {
+          kind: summary.kind,
+          samples: summary.samples,
+          milestones: summary.milestones,
+        });
+      }
+    });
+  }, [isDesktopBootstrap, isDesktopShell]);
+
+  useEffect(() => {
+    if (!isDesktopShell || isDesktopBootstrap || isAuxiliaryDesktopWindow()) {
+      return;
+    }
+
+    let disposed = false;
+    const unlistenCallbacks: Array<() => void> = [];
+    void import('@tauri-apps/api/event').then(async ({ listen }) => {
+      const registrations = await Promise.all([
+        listen<Record<string, unknown>>('desktop://watcher-start-requested', ({ payload }) => {
+          recordLaunchMilestone('watcher_start_requested', payload);
+        }),
+        listen<Record<string, unknown>>('desktop://watcher-ready', ({ payload }) => {
+          recordLaunchMilestone('watcher_ready', payload);
+        }),
+        listen<Record<string, unknown>>('desktop://watcher-failed', ({ payload }) => {
+          recordLaunchMilestone('watcher_failed', payload);
+        }),
+        listen<Record<string, unknown>>('desktop://watcher-rss-sampled', ({ payload }) => {
+          recordLaunchMilestone('watcher_rss_sampled', payload);
+        }),
+      ]);
+      if (disposed) {
+        registrations.forEach((unlisten) => unlisten());
+      } else {
+        unlistenCallbacks.push(...registrations);
+      }
+    }).catch((error) => {
+      void recordDesktopShellEvent('watcher:event-listener-failed', 'warn', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+
+    return () => {
+      disposed = true;
+      unlistenCallbacks.forEach((unlisten) => unlisten());
+    };
   }, [isDesktopBootstrap, isDesktopShell]);
 
   useEffect(() => {
@@ -113,6 +209,35 @@ export function RootProviders({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
+    if (isGlassChromeEnabled) {
+      window.sessionStorage.setItem('ritual_glass_chrome', '1');
+      document.documentElement.dataset.glassChrome = '1';
+    } else {
+      window.sessionStorage.removeItem('ritual_glass_chrome');
+      delete document.documentElement.dataset.glassChrome;
+    }
+  }, [isGlassChromeEnabled]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const setWindowActive = () => {
+      document.documentElement.dataset.windowActive = document.hasFocus() ? '1' : '0';
+    };
+
+    setWindowActive();
+    window.addEventListener('focus', setWindowActive);
+    window.addEventListener('blur', setWindowActive);
+    return () => {
+      window.removeEventListener('focus', setWindowActive);
+      window.removeEventListener('blur', setWindowActive);
+      delete document.documentElement.dataset.windowActive;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
     if (isSidebarCaptureMode) {
       document.documentElement.dataset.sidebarCapture = '1';
     } else {
@@ -137,16 +262,33 @@ export function RootProviders({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  const isSettingsWindow = typeof window !== 'undefined'
+    && new URLSearchParams(window.location.search).get('ritual_settings_window') === '1';
+
+  const signedInTree = (
+    <>
+      <DesktopAssetRecoveryBridge />
+      <DesktopAuthDeepLinkBridge />
+      {children}
+    </>
+  );
+
   const content = (
-    <OpenPanelProvider>
-      <QueryProvider>
-        <HabitsProvider>
-          <DesktopAssetRecoveryBridge />
-          <DesktopAuthDeepLinkBridge />
-          {children}
-        </HabitsProvider>
-      </QueryProvider>
-    </OpenPanelProvider>
+    <ChromeAppearanceProvider>
+      <OpenPanelProvider>
+        <QueryProvider>
+          {isSettingsWindow ? (
+            signedInTree
+          ) : (
+            <HabitsProvider>
+              <VoiceSessionProvider>
+                {signedInTree}
+              </VoiceSessionProvider>
+            </HabitsProvider>
+          )}
+        </QueryProvider>
+      </OpenPanelProvider>
+    </ChromeAppearanceProvider>
   );
 
   return (
@@ -157,9 +299,15 @@ export function RootProviders({ children }: { children: ReactNode }) {
     >
       {/* Detect OS and set data-platform attr for macOS vibrancy CSS */}
       <PlatformDetector />
+      <DeferredFonts />
+      <DeferredChrome />
+      <InteractionSounds />
+      {isDesktop && !isDesktopBootstrap && !isAuxiliaryDesktopWindow() ? (
+        <DesktopWindowResizeEdges />
+      ) : null}
       {isTransparencyProbe ? (
         <TransparencyProbe />
-      ) : isDesktopBootstrap ? (
+      ) : isDesktopBootstrap || isVoiceHudWindow() ? (
         children
       ) : (
         <ClerkProvider
@@ -168,6 +316,14 @@ export function RootProviders({ children }: { children: ReactNode }) {
           signInForceRedirectUrl="/auth/sso-callback"
           signUpForceRedirectUrl="/auth/sso-callback"
           afterSignOutUrl="/"
+          allowedRedirectOrigins={[
+            'https://desktop.ritualdb.com',
+            'https://ritualdb.com',
+            'https://tauri.localhost',
+            'http://tauri.localhost',
+            'http://127.0.0.1:1420',
+            'http://localhost:1420',
+          ]}
           localization={{
             formFieldHintText__optional: '',
           }}

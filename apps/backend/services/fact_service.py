@@ -90,12 +90,8 @@ class FactService:
         await session.flush()
 
     async def _index_fact(self, fact: AiFactDB) -> None:
-        try:
-            from services.search_service import search_service
-
-            await search_service.index_ai_fact(self._fact_to_schema(fact).model_dump(mode="json"), fact.user_id)
-        except Exception:
-            logger.exception("Failed to index AI fact %s", fact.id)
+        del fact
+        return None
 
     async def ensure_seeded_profile_facts(self, user_id: str) -> None:
         async with get_db_session() as session:

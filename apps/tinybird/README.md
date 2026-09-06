@@ -1,107 +1,49 @@
-# Ritual Tinybird Analytics Backend
+# Ritual Tinybird project
 
-This directory contains the Tinybird data project for Ritual's analytics backend.
+This directory is the declarative Tinybird project for Ritual. Runtime ingestion,
+privacy enforcement, circuit buffering, and query access are owned by
+`apps/backend/services/tinybird_service.py`; there is no second Python client in
+this project.
 
-## Architecture
+## Managed resources
 
-### What's in Tinybird
-- `habit_logs` - All habit activity data (time-series)
-- `whoop_sleep_data` - Whoop sleep metrics
-- `whoop_recovery_data` - Whoop recovery metrics  
-- `whoop_workout_data` - Whoop workout/strain data
+`tinybird.config.json` intentionally includes only the committed `datasources/`
+and `pipes/` directories. A remote inventory performed on 2026-08-17 found the
+same seven data sources and seventeen pipes as the repository, with no
+unmanaged remote resources.
 
-### What's in Supabase
-- `profiles` - User profiles
-- `habits` - Habit definitions
-- `whoop_connections` - OAuth tokens and connection data
-- Real-time subscriptions for UI updates
+Before changing the include set, compare the cloud inventory with production
+call sites. Import referenced remote-only resources into this project. Back up
+and retire unreferenced resources only after confirming they have had no writes
+or queries for 30 days.
 
-## Setup
-
-### 1. Install Tinybird CLI
-
-```bash
-curl -fsSL https://install.tinybird.co/install.sh | bash
-```
-
-### 2. Login to Tinybird
+## Local development
 
 ```bash
 tb login
-```
-
-### 3. Start Tinybird Local (for development)
-
-```bash
 tb local start
+npm run build
+npm run deploy:local
 ```
 
-### 4. Deploy to Tinybird Local
+The local `.tinyb` credential file is ignored by Git.
+
+## Cloud deployment
+
+Cloud changes are staged and promoted separately. Do not use an unreviewed
+one-step `tb --cloud deploy` command.
 
 ```bash
-cd apps/tinybird
-tb build
-tb deploy
+npm run check:cloud
+npm run stage:cloud
+# Smoke-test the staging endpoints, then:
+npm run promote:cloud
 ```
 
-### 5. Deploy to Tinybird Cloud (production)
+The `Tinybird Deployment` GitHub Actions workflow exposes those same three
+manual operations. It authenticates with the scoped `TINYBIRD_TOKEN` repository
+secret. Promotion remains a distinct manual dispatch so a successful check or
+staging deployment cannot publish by itself.
 
-```bash
-tb --cloud deploy
-```
-
-## Python Backend Service
-
-The Python backend service (`apps/tinybird/python-service/`) handles:
-- Writing data to Tinybird Events API
-- Dual-write to both Supabase (transactional) and Tinybird (analytics)
-- Data migration from Supabase to Tinybird
-
-### Install Python Dependencies
-
-```bash
-cd apps/tinybird/python-service
-pip install -r requirements.txt
-```
-
-### Set Environment Variables
-
-```bash
-cp .env.example .env
-# Edit .env with your credentials
-```
-
-### Run Migration
-
-```bash
-python migrate_data.py
-```
-
-## API Endpoints
-
-All analytics queries now use Tinybird pipes (exposed as HTTP APIs):
-
-- `GET /v0/pipes/user_habits_summary.json?user_id=xxx` - User habit dashboard
-- `GET /v0/pipes/habit_streaks.json?user_id=xxx&habit_id=yyy` - Calculate streaks
-- `GET /v0/pipes/whoop_analytics.json?user_id=xxx&date_range=30d` - Whoop metrics
-- `GET /v0/pipes/habit_trends.json?user_id=xxx&period=week` - Habit trends over time
-
-## Development Workflow
-
-1. Make changes to `.datasource` or `.pipe` files
-2. Test locally: `tb dev`
-3. Deploy to local: `tb deploy`
-4. Test API endpoints
-5. Deploy to cloud: `tb --cloud deploy`
-
-## Cost Optimization
-
-Tinybird pricing is based on:
-- Data storage (compressed, columnar)
-- Query compute (pay per query)
-- Data ingestion (events/second)
-
-Expected costs for Ritual:
-- ~$20-50/month for 1-10K users
-- 100x cheaper than querying Supabase for analytics
-- 10-100x faster query performance
+After staging, smoke-query every endpoint changed by the deployment with a
+representative test user and verify ingestion against each changed data source.

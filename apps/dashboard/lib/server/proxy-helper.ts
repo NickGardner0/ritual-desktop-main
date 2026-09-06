@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
-import { buildBackendAuthHeaders } from "@/lib/server/backend-auth";
+import { getBackendBaseUrl } from "@/lib/api/backend-url";
+import { buildBackendAuthHeaders, resolveProxyForwarding } from "@/lib/server/backend-auth";
+import { createProxiedSuccessResponse } from "@/lib/server/proxy-response";
 
-const BACKEND_URL =
-  process.env.NEXT_PUBLIC_PYTHON_API_URL || "http://127.0.0.1:8000";
+const FORCE_FRESH_COOKIE = "ritual_force_fresh_until";
+const FORCE_FRESH_WINDOW_MS = 10_000;
 
 interface ProxyOptions {
   /** HTTP method override (defaults to request method) */
@@ -12,10 +14,6 @@ interface ProxyOptions {
   timeout?: number;
   /** Log tag for console messages (e.g. "habits") */
   tag?: string;
-  /** Compatibility payload for legacy dashboard callers when a backend resource is missing. */
-  notFoundFallback?: unknown;
-  /** Compatibility payload for legacy dashboard callers when the backend is unavailable. */
-  errorFallback?: unknown;
 }
 
 export async function forwardProxyRequest(
@@ -36,7 +34,9 @@ export async function forwardProxyRequest(
     let userId: string | null = null;
 
     const authHeader = request.headers.get("authorization") ?? "";
-    const forceFresh = request.headers.get("x-ritual-force-fresh") === "1";
+    const forceFreshUntil = Number(request.cookies.get(FORCE_FRESH_COOKIE)?.value ?? 0);
+    const forceFreshFromCookie = Number.isFinite(forceFreshUntil) && forceFreshUntil > Date.now();
+    const forceFresh = request.headers.get("x-ritual-force-fresh") === "1" || forceFreshFromCookie;
     if (authHeader.toLowerCase().startsWith("bearer ")) {
       // Tauri / programmatic caller — skip Clerk entirely
       token = authHeader.slice(7);
@@ -53,64 +53,66 @@ export async function forwardProxyRequest(
     }
 
     // --- Forward to backend ---
-    const url = `${BACKEND_URL}${backendPath}${queryString ? `?${queryString}` : ""}`;
+    const url = `${getBackendBaseUrl()}${backendPath}${queryString ? `?${queryString}` : ""}`;
+    const forwarding = resolveProxyForwarding(request.headers.get("content-type"));
 
     const fetchInit: RequestInit = {
       method,
       cache: "no-store",
-      headers: buildBackendAuthHeaders({ userId, token, forceFresh }),
+      headers: {
+        ...buildBackendAuthHeaders({
+          userId,
+          token,
+          forceFresh,
+          contentType: forwarding.contentType,
+        }),
+        ...forwardPrivacyHeaders(request),
+      },
       signal: AbortSignal.timeout(timeout),
     };
 
-    // Forward body for non-GET methods
+    // Forward body for non-GET methods. Multipart must keep the original
+    // bytes and boundary; JSON callers keep the existing text/json path.
     if (method !== "GET" && method !== "HEAD") {
-      fetchInit.body = await request.text();
+      fetchInit.body = forwarding.isMultipart
+        ? await request.arrayBuffer()
+        : await request.text();
     }
 
     const response = await fetch(url, fetchInit);
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => "");
-      if (response.status === 404 && opts.notFoundFallback !== undefined) {
-        console.warn(`[Ritual][${tag}-proxy] backend-not-found-fallback`, {
-          duration_ms: Date.now() - startedAt,
-          status: response.status,
-        });
-        return NextResponse.json(opts.notFoundFallback, {
-          headers: { "Cache-Control": "no-store, max-age=0" },
-        });
-      }
-
       console.warn(`[Ritual][${tag}-proxy] backend-error`, {
         duration_ms: Date.now() - startedAt,
         status: response.status,
         body: errorText.slice(0, 300),
       });
-      return NextResponse.json(
-        { error: errorText || `Backend error` },
-        { status: response.status },
-      );
+      let errorPayload: unknown = { error: errorText || "Backend error" };
+      if (errorText) {
+        try {
+          errorPayload = JSON.parse(errorText);
+        } catch {
+          // Keep the wrapped string for non-JSON backend failures.
+        }
+      }
+      return NextResponse.json(errorPayload, { status: response.status });
     }
 
-    const data = await response.json();
+    const nextResponse = createProxiedSuccessResponse(response);
     console.info(`[Ritual][${tag}-proxy] success`, {
       duration_ms: Date.now() - startedAt,
-      count: Array.isArray(data) ? data.length : undefined,
     });
-    return NextResponse.json(data, {
-      headers: { "Cache-Control": "no-store, max-age=0" },
-    });
-  } catch (error) {
-    if (opts.errorFallback !== undefined) {
-      console.warn(`[Ritual][${tag}-proxy] exception-fallback`, {
-        duration_ms: Date.now() - startedAt,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return NextResponse.json(opts.errorFallback, {
-        headers: { "Cache-Control": "no-store, max-age=0" },
+    if (shouldSetForceFreshCookie(method, backendPath)) {
+      nextResponse.cookies.set(FORCE_FRESH_COOKIE, String(Date.now() + FORCE_FRESH_WINDOW_MS), {
+        httpOnly: true,
+        sameSite: "lax",
+        path: "/",
+        maxAge: Math.ceil(FORCE_FRESH_WINDOW_MS / 1000),
       });
     }
-
+    return nextResponse;
+  } catch (error) {
     console.error(`[Ritual][${tag}-proxy] exception`, {
       duration_ms: Date.now() - startedAt,
       error: error instanceof Error ? error.message : String(error),
@@ -120,4 +122,27 @@ export async function forwardProxyRequest(
       { status: 500 },
     );
   }
+}
+
+function forwardPrivacyHeaders(request: NextRequest): Record<string, string> {
+  const headers: Record<string, string> = {};
+  const mode = request.headers.get("x-ritual-privacy-mode");
+  const consents = request.headers.get("x-ritual-cloud-consents");
+  if (mode) headers["X-Ritual-Privacy-Mode"] = mode;
+  if (consents) headers["X-Ritual-Cloud-Consents"] = consents;
+  return headers;
+}
+
+function shouldSetForceFreshCookie(method: string, backendPath: string): boolean {
+  if (method === "GET" || method === "HEAD") {
+    return false;
+  }
+
+  return (
+    backendPath === "/api/user/bootstrap/profile"
+    || backendPath === "/api/user/activation/first-behavior"
+    || backendPath === "/api/user/activation/permissions-seen"
+    || backendPath.startsWith("/api/habits")
+    || backendPath === "/api/logs/batch"
+  );
 }

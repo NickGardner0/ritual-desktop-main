@@ -3,368 +3,29 @@ import { openai } from '@ai-sdk/openai';
 import { z } from 'zod';
 import { NextRequest } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
-import { logger } from '@/lib/logger';
+import { privacyBlockResponse } from '@/lib/privacy/server-policy';
+import { createServerBackendClient } from '@/lib/api/server-client';
+import {
+  type LogResult,
+  type ResolvedIntent,
+  resolveHabit,
+  normalizeUnit,
+  convertValue,
+  checkUnitCompatibility,
+} from './route.resolver';
+import { buildHabitLogSystemPrompt } from './route.prompt';
 
-// Python backend API configuration
-const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
-
-// Phase 5A: Types for multi-intent parsing
-interface LogIntent {
-  habit_hint: string;
-  value: number | null;
-  unit: string | null;
-  date: string;
-  notes: string;
-}
-
-interface ResolvedIntent extends LogIntent {
-  habit_id: string | null;
-  habit_name: string | null;
-  match_type: string;
-  confidence: number;
-  needs_clarification: boolean;
-  alternatives: Array<{ id: string; name: string; confidence: number }>;
-  unit_compatible: boolean;
-  unit_error?: string;
-  converted_value?: number;
-}
-
-interface LogResult {
-  index: number;
-  success: boolean;
-  habit_id?: string;
-  habit_name?: string;
-  value?: number;
-  unit?: string;
-  date?: string;
-  error?: string;
-  needs_clarification?: boolean;
-  alternatives?: Array<{ id: string; name: string; confidence: number }>;
-}
-
-// Phase 5A: Unit conversion utilities (server-side)
-const UNIT_CANONICAL: Record<string, string> = {
-  min: 'minutes', mins: 'minutes', minute: 'minutes',
-  hr: 'hours', hrs: 'hours', hour: 'hours',
-  mi: 'miles', mile: 'miles',
-  km: 'kilometers', kilometer: 'kilometers',
-  step: 'steps', pg: 'pages', page: 'pages',
-};
-
-function normalizeUnit(unit: string | null): string {
-  if (!unit) return 'count';
-  const lower = unit.toLowerCase().trim();
-  return UNIT_CANONICAL[lower] || lower;
-}
-
-function convertValue(value: number, fromUnit: string, toUnit: string): { value: number; converted: boolean } {
-  const from = normalizeUnit(fromUnit);
-  const to = normalizeUnit(toUnit);
-  
-  if (from === to) return { value, converted: false };
-  
-  // Time conversions
-  if (from === 'minutes' && to === 'hours') return { value: value / 60, converted: true };
-  if (from === 'hours' && to === 'minutes') return { value: value * 60, converted: true };
-  
-  // Distance conversions
-  if (from === 'kilometers' && to === 'miles') return { value: value * 0.621371, converted: true };
-  if (from === 'miles' && to === 'kilometers') return { value: value * 1.60934, converted: true };
-  
-  return { value, converted: false };
-}
-
-function checkUnitCompatibility(intentUnit: string | null, habitUnit: string | null): { compatible: boolean; error?: string } {
-  const from = normalizeUnit(intentUnit);
-  const to = normalizeUnit(habitUnit);
-  
-  if (from === to || to === 'count' || from === 'count') return { compatible: true };
-  
-  const timeUnits = ['minutes', 'hours', 'seconds'];
-  if (timeUnits.includes(from) && timeUnits.includes(to)) return { compatible: true };
-  
-  const distanceUnits = ['miles', 'kilometers', 'meters'];
-  if (distanceUnits.includes(from) && distanceUnits.includes(to)) return { compatible: true };
-  
-  return { compatible: false, error: `Cannot convert ${intentUnit} to ${habitUnit}` };
-}
-
-// Helper: Get common prefix length between two strings
-function commonPrefixLength(a: string, b: string): number {
-  let i = 0;
-  while (i < a.length && i < b.length && a[i] === b[i]) i++;
-  return i;
-}
-
-const STEP_RELATED_HINTS = new Set([
-  'step',
-  'steps',
-  'walk',
-  'walked',
-  'walking',
-  'walks',
-  'hike',
-  'hiked',
-  'hiking',
-  'run',
-  'ran',
-  'running',
-  'jog',
-  'jogged',
-  'jogging',
-]);
-
-const GENERIC_MATCH_WORDS = new Set([
-  'consumption',
-  'intake',
-  'time',
-  'duration',
-  'daily',
-]);
-
-const CAFFEINE_CONTEXT_TERMS = [
-  'caffeine',
-  'coffee',
-  'espresso',
-  'latte',
-  'americano',
-  'matcha',
-  'energy drink',
-  'pre workout',
-  'pre-workout',
-  'tea',
-];
-
-const NICOTINE_CONTEXT_TERMS = [
-  'nicotine',
-  'vape',
-  'vaped',
-  'vaping',
-  'smoke',
-  'smoked',
-  'smoking',
-  'cigarette',
-  'cigarettes',
-  'cigar',
-  'zyn',
-  'pouch',
-  'pouches',
-  'dip',
-  'tobacco',
-];
-
-function tokenizeLowerText(value: string): Set<string> {
-  return new Set(
-    value
-      .toLowerCase()
-      .replace(/[^a-z0-9\s]/g, ' ')
-      .split(/\s+/)
-      .filter(Boolean)
-  );
-}
-
-function textHasAnyTerm(rawText: string, tokens: Set<string>, terms: string[]): boolean {
-  return terms.some((term) => {
-    const lower = term.toLowerCase();
-    if (lower.includes(' ')) {
-      return rawText.includes(lower);
-    }
-    return tokens.has(lower);
-  });
-}
-
-// Phase 5A: Simple fuzzy resolver (server-side implementation)
-function resolveHabit(
-  hint: string,
-  userHabits: Array<{ id: string; name: string; category: string; unit_type: string }>,
-  aliasesMap: Record<string, string[]>,
-  intentUnit: string | null = null,
-  originalText: string = ''
-): {
-  habit_id: string | null;
-  habit_name: string | null;
-  match_type: string;
-  confidence: number;
-  alternatives: Array<{ id: string; name: string; confidence: number }>;
-  needs_clarification: boolean;
-} {
-  const hintLower = hint.toLowerCase().trim();
-  const normalizedIntentUnit = normalizeUnit(intentUnit);
-  const contextLower = `${hintLower} ${originalText.toLowerCase().trim()}`.trim();
-  const contextTokens = tokenizeLowerText(contextLower);
-  const hasCaffeineContext = textHasAnyTerm(contextLower, contextTokens, CAFFEINE_CONTEXT_TERMS);
-  const hasNicotineContext = textHasAnyTerm(contextLower, contextTokens, NICOTINE_CONTEXT_TERMS);
-  const candidateMap = new Map<string, { habit: typeof userHabits[0]; type: string; confidence: number }>();
-
-  const pushCandidate = (
-    habit: typeof userHabits[0],
-    type: string,
-    confidence: number
-  ) => {
-    const existing = candidateMap.get(habit.id);
-    if (!existing || confidence > existing.confidence) {
-      candidateMap.set(habit.id, { habit, type, confidence });
-    }
-  };
-  
-  for (const habit of userHabits) {
-    const nameLower = habit.name.toLowerCase();
-    const aliases = aliasesMap[habit.id] || [];
-    const habitUnit = normalizeUnit(habit.unit_type);
-    const habitDescriptor = `${nameLower} ${aliases.join(' ')}`;
-    const habitDescriptorTokens = tokenizeLowerText(habitDescriptor);
-    const isCaffeineHabit = textHasAnyTerm(habitDescriptor, habitDescriptorTokens, CAFFEINE_CONTEXT_TERMS);
-    const isNicotineHabit = textHasAnyTerm(habitDescriptor, habitDescriptorTokens, NICOTINE_CONTEXT_TERMS);
-
-    if (hasCaffeineContext && isCaffeineHabit) {
-      pushCandidate(habit, 'semantic', 0.995);
-    }
-
-    if (hasNicotineContext && isNicotineHabit) {
-      pushCandidate(habit, 'semantic', 0.995);
-    }
-    
-    // 1. Exact match
-    if (hintLower === nameLower) {
-      pushCandidate(habit, 'exact', 1.0);
-      continue;
-    }
-    
-    // 2. Alias match
-    for (const alias of aliases) {
-      if (hintLower === alias) {
-        pushCandidate(habit, 'alias', 0.95);
-        break;
-      }
-      if (hintLower.includes(alias) || alias.includes(hintLower)) {
-        pushCandidate(habit, 'alias', 0.8);
-        break;
-      }
-    }
-    
-    // 3. Substring match
-    if (nameLower.includes(hintLower)) {
-      pushCandidate(habit, 'substring', 0.85 * hintLower.length / nameLower.length);
-      continue;
-    }
-    if (hintLower.includes(nameLower)) {
-      pushCandidate(habit, 'substring', 0.75);
-      continue;
-    }
-    
-    // 4. Stem/prefix match (handles "meditate" → "meditation", "code" → "coding", etc.)
-    const prefixLen = commonPrefixLength(hintLower, nameLower);
-    const minLen = Math.min(hintLower.length, nameLower.length);
-    if (prefixLen >= 4 && prefixLen >= minLen * 0.7) {
-      // Strong prefix match - likely same root word
-      const confidence = 0.9 * (prefixLen / Math.max(hintLower.length, nameLower.length));
-      pushCandidate(habit, 'stem', Math.max(confidence, 0.85));
-      continue;
-    }
-    
-    // 5. Word match (check all words for best match)
-    const nameWords = nameLower.split(/\s+/).filter((word) => !GENERIC_MATCH_WORDS.has(word));
-    let bestWordMatch: { type: string; confidence: number } | null = null;
-    
-    for (const word of nameWords) {
-      // Exact word match
-      if (hintLower === word) {
-        bestWordMatch = { type: 'token', confidence: 0.95 };
-        break;
-      }
-      
-      // Stem/prefix match on word (e.g., "read" → "reading")
-      const wordPrefixLen = commonPrefixLength(hintLower, word);
-      const minLen = Math.min(hintLower.length, word.length);
-      if (wordPrefixLen >= 3 && wordPrefixLen >= minLen * 0.7) {
-        const conf = 0.85 + (0.1 * wordPrefixLen / Math.max(hintLower.length, word.length));
-        if (!bestWordMatch || conf > bestWordMatch.confidence) {
-          bestWordMatch = { type: 'stem', confidence: Math.min(conf, 0.95) };
-        }
-      }
-      
-      // Substring containment (lower confidence)
-      if (word.length >= 3 && (hintLower.includes(word) || word.includes(hintLower))) {
-        const conf = 0.8 * Math.min(hintLower.length, word.length) / Math.max(hintLower.length, word.length);
-        if (!bestWordMatch || conf > bestWordMatch.confidence) {
-          bestWordMatch = { type: 'token', confidence: Math.max(conf, 0.75) };
-        }
-      }
-    }
-    
-    if (bestWordMatch) {
-      pushCandidate(habit, bestWordMatch.type, bestWordMatch.confidence);
-    }
-
-    if (normalizedIntentUnit !== 'count' && habitUnit === normalizedIntentUnit) {
-      const existing = candidateMap.get(habit.id);
-      if (existing) {
-        pushCandidate(habit, `${existing.type}+unit`, Math.min(existing.confidence + 0.18, 0.99));
-      } else {
-        pushCandidate(habit, 'unit', 0.55);
-      }
-    }
-
-    if (
-      normalizedIntentUnit === 'steps' &&
-      habitUnit === 'steps' &&
-      STEP_RELATED_HINTS.has(hintLower)
-    ) {
-      pushCandidate(habit, 'unit_semantic', 0.98);
-    }
-  }
-
-  const candidates = Array.from(candidateMap.values());
-  
-  // Sort by confidence
-  candidates.sort((a, b) => b.confidence - a.confidence);
-  
-  if (candidates.length === 0) {
-    return {
-      habit_id: null,
-      habit_name: null,
-      match_type: 'none',
-      confidence: 0,
-      alternatives: [],
-      needs_clarification: true
-    };
-  }
-  
-  const best = candidates[0];
-  const alternatives = candidates.slice(1, 4).map(c => ({
-    id: c.habit.id,
-    name: c.habit.name,
-    confidence: Math.round(c.confidence * 100) / 100
-  }));
-  
-  // Simplified clarification logic - be VERY permissive
-  // Only ask for clarification if:
-  // 1. No match at all (confidence = 0), OR
-  // 2. Multiple matches with VERY similar confidence (within 5%) AND low overall confidence
-  const bestTypeIsLowSignal =
-    best.type.includes('unit') ||
-    best.type === 'token' ||
-    best.type === 'stem';
-  const hasCompetingMatch = alternatives.length > 0 &&
-    alternatives[0].confidence > best.confidence - 0.03 &&
-    (best.confidence < 0.75 || bestTypeIsLowSignal);
-  
-  const needsClarification = best.confidence === 0 || hasCompetingMatch;
-  
-  return {
-    habit_id: needsClarification ? null : best.habit.id,
-    habit_name: best.habit.name,
-    match_type: best.type,
-    confidence: Math.round(best.confidence * 100) / 100,
-    alternatives: needsClarification 
-      ? [{ id: best.habit.id, name: best.habit.name, confidence: Math.round(best.confidence * 100) / 100 }, ...alternatives]
-      : alternatives,
-    needs_clarification: needsClarification
-  };
-}
+const FASTAPI_TIMEOUT_MS = 15000;
 
 export async function POST(req: NextRequest) {
   try {
+    const privacyBlock = privacyBlockResponse(req, {
+      dataClass: 'ai_content',
+      destination: 'openai',
+      purpose: 'ai',
+    });
+    if (privacyBlock) return privacyBlock;
+
     // Auth setup
     const authHeader = req.headers.get('Authorization');
     let token: string | null = null;
@@ -383,7 +44,7 @@ export async function POST(req: NextRequest) {
         }
       }
     } catch (authError) {
-      logger.error('⚠️ Clerk auth() error:', authError);
+      console.error('⚠️ Clerk auth() error:', authError);
     }
 
     const { messages, userId, selectedDate, clientEventId }: { 
@@ -396,35 +57,43 @@ export async function POST(req: NextRequest) {
     const effectiveUserId = clerkUserId || userId;
     const effectiveToken = token;
     
-    logger.info('🔍 Phase 5A: /api/chat/habits called (multi-intent)');
+    console.info('🔍 Phase 5A: /api/chat/habits called (multi-intent)');
 
     // Fetch user's habits
     let userHabits: Array<{ id: string; name: string; category: string; unit_type: string }> = [];
-    const headers: Record<string, string> = {};
-    if (effectiveToken) {
-      headers['Authorization'] = `Bearer ${effectiveToken}`;
-    }
-    
-    try {
-      const habitsResponse = await fetch(`${PYTHON_API_BASE}/api/habits`, { headers, signal: AbortSignal.timeout(15000) });
-      if (habitsResponse.ok) {
-        userHabits = await habitsResponse.json();
-        logger.info('✅ Fetched habits:', userHabits.length);
-      }
-    } catch (error) {
-      logger.error('❌ Error fetching habits:', error);
-    }
-
-    // Fetch aliases for fuzzy matching
     let aliasesMap: Record<string, string[]> = {};
-    try {
-      const aliasesResponse = await fetch(`${PYTHON_API_BASE}/api/habits/aliases`, { headers, signal: AbortSignal.timeout(15000) });
-      if (aliasesResponse.ok) {
-        aliasesMap = await aliasesResponse.json();
+
+    if (effectiveToken) {
+      const backend = createServerBackendClient(() => ({
+        Authorization: `Bearer ${effectiveToken}`,
+        'Content-Type': 'application/json',
+      }));
+
+      try {
+        const habits = await backend.requestOperation('get_habits_api_habits_get', {
+          signal: AbortSignal.timeout(FASTAPI_TIMEOUT_MS),
+        });
+        userHabits = habits.map((habit) => ({
+          id: habit.id,
+          name: habit.name,
+          category: habit.category,
+          unit_type: habit.unit_type ?? 'count',
+        }));
+        console.info('✅ Fetched habits:', userHabits.length);
+      } catch (error) {
+        console.error('❌ Error fetching habits:', error);
       }
-    } catch {
-      // Aliases are optional - continue without them
-      logger.warn('⚠️ Could not fetch aliases, continuing with name matching only');
+
+      try {
+        const aliases = await backend.requestOperation('get_all_habit_aliases_api_habits_aliases_get', {
+          signal: AbortSignal.timeout(FASTAPI_TIMEOUT_MS),
+        });
+        if (aliases && typeof aliases === 'object' && !Array.isArray(aliases)) {
+          aliasesMap = aliases as Record<string, string[]>;
+        }
+      } catch {
+        console.warn('⚠️ Could not fetch aliases, continuing with name matching only');
+      }
     }
 
     // Date helpers - IMPORTANT: Use local timezone, not UTC!
@@ -447,145 +116,14 @@ export async function POST(req: NextRequest) {
     };
     const currentYear = new Date().getFullYear();
 
-    const habitsContext = userHabits.length > 0 
-      ? `USER'S HABITS:\n${userHabits.map(h => `- "${h.name}" (unit: ${h.unit_type || 'count'})`).join('\n')}`
-      : 'User has no habits yet.';
-
-    // Phase 5A: Multi-intent system prompt
-    const systemPrompt = `You are a habit logging assistant. Parse the user's message and extract ALL habit log intents.
-
-CRITICAL: Always return a JSON object with an "intents" array, even if empty.
-
-${habitsContext}
-
-REFERENCE DATES:
-- "today" = ${today}
-- "yesterday" = ${yesterday}
-- "2 days ago" = ${getLocalDate(-2)}
-- "3 days ago" = ${getLocalDate(-3)}
-- "last ${getDayName(-1)}" = ${yesterday}
-- "last ${getDayName(-2)}" = ${getLocalDate(-2)}
-- Current year: ${currentYear}
-
-PARSING RULES:
-1. Extract EVERY trackable activity from the message
-2. For each activity, identify:
-   - habit_hint: key word to match (e.g., "walk", "meditate", "workout")
-   - value: numeric amount — ALWAYS a number, never null. Default to 1 if unclear.
-   - unit: the unit mentioned (minutes, hours, miles, pages, etc.)
-   - date: parsed date or "${today}" if not specified
-   - notes: original text fragment
-
-3. Handle multiple logs:
-   - "walked 4 miles and meditated 10 minutes" → 2 intents
-   - "worked out, read for 30 mins" → 2 intents
-
-4. Handle implicit values:
-   - "did a walk" → value: 1, unit: count
-   - "meditated" → value: 1, unit: count (or reasonable default)
-
-5. Handle ranges:
-   - "walked 3-4 miles" → value: 3.5
-
-6. Handle SPOKEN word-numbers — convert to digits:
-   - "one mile" → value: 1, unit: miles
-   - "a mile" → value: 1, unit: miles
-   - "twenty two pages" → value: 22, unit: pages
-   - "half a mile" → value: 0.5, unit: miles
-   - "a hundred pushups" → value: 100, unit: count
-   - "thirty minutes" → value: 30, unit: minutes
-
-7. Be generous with habit_hint extraction. Pull the main action verb or noun
-   even if the phrasing is conversational ("I just walked one mile" → habit_hint: "walk").
-   The server does fuzzy matching against the user's habits.
-
-8. For substance/consumption logs, use the consumed substance as habit_hint,
-   not generic words like "consume", "consumed", or "consumption".
-   - "Consumed 8mg of nicotine" → habit_hint: "nicotine"
-   - "I consumed 190mg of caffeine" → habit_hint: "caffeine"
-   - "Drank coffee" → habit_hint: "caffeine"
-   - "Vaped 6mg" → habit_hint: "nicotine"
-
-EXAMPLES:
-"I walked 4 miles today" →
-{
-  "intents": [{
-    "habit_hint": "walk",
-    "value": 4,
-    "unit": "miles",
-    "date": "${today}",
-    "notes": "I walked 4 miles today"
-  }]
-}
-
-"Walked 3 miles and meditated for 10 minutes yesterday" →
-{
-  "intents": [
-    {"habit_hint": "walk", "value": 3, "unit": "miles", "date": "${yesterday}", "notes": "Walked 3 miles"},
-    {"habit_hint": "meditate", "value": 10, "unit": "minutes", "date": "${yesterday}", "notes": "meditated for 10 minutes"}
-  ]
-}
-
-"I completed my workout" →
-{
-  "intents": [{
-    "habit_hint": "workout",
-    "value": 1,
-    "unit": "count",
-    "date": "${today}",
-    "notes": "completed my workout"
-  }]
-}
-
-"I just walked one mile" →
-{
-  "intents": [{
-    "habit_hint": "walk",
-    "value": 1,
-    "unit": "miles",
-    "date": "${today}",
-    "notes": "I just walked one mile"
-  }]
-}
-
-"Read twenty two pages tonight" →
-{
-  "intents": [{
-    "habit_hint": "read",
-    "value": 22,
-    "unit": "pages",
-    "date": "${today}",
-    "notes": "Read twenty two pages tonight"
-  }]
-}
-
-"Consumed 8mg of nicotine" →
-{
-  "intents": [{
-    "habit_hint": "nicotine",
-    "value": 8,
-    "unit": "milligrams",
-    "date": "${today}",
-    "notes": "Consumed 8mg of nicotine"
-  }]
-}
-
-"I consumed 190mg of caffeine" →
-{
-  "intents": [{
-    "habit_hint": "caffeine",
-    "value": 190,
-    "unit": "milligrams",
-    "date": "${today}",
-    "notes": "I consumed 190mg of caffeine"
-  }]
-}
-
-Non-trackable input →
-{
-  "intents": [],
-  "message": "I couldn't identify any habits to log. Could you tell me what activity you did?"
-}`;
+    const systemPrompt = buildHabitLogSystemPrompt({
+      userHabits,
+      today,
+      yesterday,
+      getLocalDate,
+      getDayName,
+      currentYear,
+    });
 
     // Phase 5A: Multi-intent schema
     const multiIntentSchema = z.object({
@@ -609,7 +147,7 @@ Non-trackable input →
     });
 
     const parsed = result.object;
-    logger.info('📝 Parsed intents:', JSON.stringify(parsed.intents));
+    console.info('📝 Parsed intents:', JSON.stringify(parsed.intents));
 
     // No intents found
     if (!parsed.intents || parsed.intents.length === 0) {
@@ -681,7 +219,7 @@ Non-trackable input →
         converted_value: convertedValue ?? undefined
       });
 
-      logger.info('🎯 Intent resolution', {
+      console.info('🎯 Intent resolution', {
         hint: intent.habit_hint,
         value: intent.value,
         unit: intent.unit,
@@ -729,83 +267,53 @@ Non-trackable input →
       });
 
       try {
-        const batchResponse = await fetch(`${PYTHON_API_BASE}/api/logs/batch`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${effectiveToken}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
+        if (!effectiveToken) {
+          throw new Error('Missing auth token');
+        }
+        const backend = createServerBackendClient(() => ({
+          Authorization: `Bearer ${effectiveToken}`,
+          'Content-Type': 'application/json',
+        }));
+        const batchResult = await backend.requestOperation('batch_log_habits_api_logs_batch_post', {
+          body: {
             items: batchItems,
-            client_event_id: clientEventId
-          }),
-          signal: AbortSignal.timeout(15000),
-        });
+            client_event_id: clientEventId,
+          },
+          signal: AbortSignal.timeout(FASTAPI_TIMEOUT_MS),
+        }) as {
+          overview_snapshot?: unknown;
+          affectedHabitIds?: unknown;
+          affectedDates?: unknown;
+          results?: Array<{ index: number; success: boolean; error?: string }>;
+        };
+        console.info('✅ Batch log result:', batchResult);
+        overviewSnapshot = batchResult.overview_snapshot;
+        affectedHabitIds = Array.isArray(batchResult.affectedHabitIds) ? batchResult.affectedHabitIds : [];
+        affectedDates = Array.isArray(batchResult.affectedDates) ? batchResult.affectedDates : [];
 
-        if (batchResponse.ok) {
-          const batchResult = await batchResponse.json();
-          logger.info('✅ Batch log result:', batchResult);
-          overviewSnapshot = batchResult.overview_snapshot;
-          affectedHabitIds = Array.isArray(batchResult.affectedHabitIds) ? batchResult.affectedHabitIds : [];
-          affectedDates = Array.isArray(batchResult.affectedDates) ? batchResult.affectedDates : [];
-          
-          for (const result of batchResult.results || []) {
-            const intent = toLog[result.index];
-            logResults.push({
-              index: result.index,
-              success: result.success,
-              habit_id: intent.habit_id!,
-              habit_name: intent.habit_name!,
-              value: intent.converted_value ?? intent.value ?? 1,
-              unit: intent.unit || 'count',
-              date: intent.date,
-              error: result.error
-            });
-          }
-        } else {
-          logger.error('❌ Batch log failed:', await batchResponse.text());
-          // Add failures for all items
-          toLog.forEach((intent, index) => {
-            logResults.push({
-              index,
-              success: false,
-              habit_name: intent.habit_name ?? undefined,
-              error: 'Batch log request failed'
-            });
+        for (const result of batchResult.results || []) {
+          const intent = toLog[result.index];
+          logResults.push({
+            index: result.index,
+            success: result.success,
+            habit_id: intent.habit_id!,
+            habit_name: intent.habit_name!,
+            value: intent.converted_value ?? intent.value ?? 1,
+            unit: intent.unit || 'count',
+            date: intent.date,
+            error: result.error
           });
         }
       } catch (error) {
-        logger.error('❌ Batch log error:', error);
-      }
-    }
-
-    // Index successful log phrases for future Typesense suggestion matching
-    // This enables learned patterns: "I consumed" → Caffeine Consumption
-    if (logResults.some(r => r.success) && effectiveToken) {
-      const rawInput = messages[messages.length - 1]?.content || '';
-      
-      for (const result of logResults) {
-        if (result.success && result.habit_id && result.habit_name) {
-          try {
-            fetch(`${PYTHON_API_BASE}/api/search/index-phrase`, {
-              method: 'POST',
-              headers: {
-                'Authorization': `Bearer ${effectiveToken}`,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                input_text: rawInput,
-                habit_id: result.habit_id,
-                habit_name: result.habit_name,
-                value: result.value,
-                unit: result.unit,
-              }),
-              signal: AbortSignal.timeout(15000),
-            }).catch(err => logger.warn('⚠️ Failed to index log phrase:', err));
-          } catch {
-            // Non-blocking: phrase indexing is best-effort
-          }
-        }
+        console.error('❌ Batch log error:', error);
+        toLog.forEach((intent, index) => {
+          logResults.push({
+            index,
+            success: false,
+            habit_name: intent.habit_name ?? undefined,
+            error: 'Batch log request failed'
+          });
+        });
       }
     }
 
@@ -855,7 +363,7 @@ Non-trackable input →
     }), { headers: { 'Content-Type': 'application/json' } });
 
   } catch (error) {
-    logger.error('❌ Error in Phase 5A chat API:', error);
+    console.error('❌ Error in Phase 5A chat API:', error);
     return new Response(JSON.stringify({
       success: false,
       message: 'Error processing your request. Please try again.',

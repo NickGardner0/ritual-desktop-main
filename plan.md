@@ -1,111 +1,121 @@
-# iPhone Time Integration Plan
+# Ritual Wearables Architecture Cleanup Plan
 
 ## Summary
 
-Replace the root `/Users/nickgardner/Desktop/ritual-desktop-main/plan.md` with this plan. Make Apple Screen Time / iPhone Time a real first-class Integration using the existing Mac Biome pipeline: the desktop watcher reads Apple Biome `App.InFocus` data, queues normalized iPhone app-usage intervals, the Tauri runtime drains them to FastAPI, and backend read models display `iPhone Time` in Overview, Metrics, Logs, and Calendar.
+Ritual should keep FastAPI, Turso, the existing wearable tables, and `wearables_unified`, but make `wearables_unified` the only canonical write/projection path.
 
-V1 should focus on the desktop Biome path, not the iOS companion path. Same-iCloud Mac users get the most automated setup. Users with a different iCloud account on their daily Mac account get a guided bridge/import path using a shared JSONL export from the matching macOS account.
+The review found that Ritual already has good pieces, but they are layered on top of older provider services instead of replacing them. The main hotspots are:
+
+- `/Users/nickgardner/Desktop/ritual-desktop-main/apps/backend/services/wearable_provider_pipeline.py` defines the right contracts, but `/Users/nickgardner/Desktop/ritual-desktop-main/apps/backend/services/wearable_provider_service_pipeline.py` wraps legacy services with an `AlreadyPersistedProviderSink`, so the pipeline is not yet the real persistence boundary.
+- `/Users/nickgardner/Desktop/ritual-desktop-main/apps/backend/services/whoop_service.py`, `oura_service.py`, and `garmin_service.py` still mix auth, fetch, transform, persistence, projection, checkpoint/status, and fact rebuild behavior.
+- `whoop_service.py` rebuilds metric facts itself, while other providers rely more on `wearables_unified`; this inconsistency can cause “sync succeeded, but Sleep Duration did not increase” bugs.
+- Projection currently happens inline during sample/event persistence in `sync_persistence.py`; this is slower and makes failures harder to retry cleanly.
+- Dashboard Trigger jobs, backend ingest jobs, manual endpoints, and raw replay jobs all exist as orchestration surfaces. They need one backend-owned sync/job registry.
+
+External comparison:
+
+- **Midday** has cleaner provider/package boundaries, shared job clients, scheduler registries, and dedupe-first job IDs. Ritual should adopt these principles, not Midday’s tRPC stack.
+- **Workbench** is not a wearable app, but its queue/run observability model is useful: visible run states, retry actions, terminal failures, readonly/destructive action separation, and lightweight status endpoints.
+- **Open Wearables** is heavier than Ritual needs, but its provider strategy/capabilities, raw payload replay, explicit sync runs, and checkpoint discipline are the right patterns to steal.
 
 ## Key Changes
 
-### Integrations Page
+### Provider Strategy Boundary
 
-- Move `Apple Screen Time` into the first row directly after `Computer Use`.
-- Rename the card display to `Apple Screen Time`, keep the tracked habit/read-model label as `iPhone Time`.
-- Update card description to: `Track your iPhone screen time and app usage by syncing across devices.`
-- Remove `Coming soon`; make the card status-driven with `Connect`, `Sync Now`, and `Details`.
-- Add an `iPhone Time` details panel with:
-  - current status,
-  - last imported date,
-  - total imported events,
-  - outbox count,
-  - last drain result/error,
-  - local Biome source-file count,
-  - setup instructions,
-  - bridge import controls.
+- Introduce one canonical `WearableProviderStrategy` interface with explicit capabilities: auth type, pull/webhook support, backfill support, supported metrics, checkpoint type, retry policy, and raw replay support.
+- Move Whoop, Oura, and Garmin into provider modules that only handle:
+  - OAuth/token refresh and provider auth errors
+  - API fetching or webhook verification
+  - pagination/date-window selection
+  - transformation into canonical wearable samples/events/raw payloads
+- Provider modules must not write habit logs, rebuild metric facts, update dashboard read models, write Tinybird as source of truth, or advance checkpoints directly.
+- Remove the service-backed fake pipeline once each provider has a real strategy implementation.
 
-### Status And Diagnostics
+### Canonical Ingest And Post-Ingest
 
-- Add a dashboard hook that combines:
-  - Tauri command `get_biome_iphone_diagnostics`,
-  - backend `/api/screen-time/stats/summary`,
-  - backend read-model/fact state for the `iPhone Time` habit.
-- Derive these exact UI statuses:
-  - `not_desktop`: only available in Ritual desktop.
-  - `watcher_not_running`: desktop is open but watcher is not running.
-  - `waiting_for_icloud_sync`: no local Biome iOS peers/source files found.
-  - `source_ready`: local Biome source files exist and can be parsed.
-  - `queued`: events are waiting in `biome_iphone_events.jsonl`.
-  - `syncing`: drain just ran or queued count is decreasing.
-  - `connected`: backend has recent `iPhone Time` facts.
-  - `error`: latest drain/parser/backend error exists.
-- Show a clear warning when source files are missing: "Ritual can only read iPhone Screen Time if this Mac user is signed into the same iCloud account as the iPhone and Screen Time data has synced locally."
-- Do not claim the Apple ID itself is mismatched, because the app cannot safely read/compare Apple account identity; infer only from missing Biome peers/source files.
+- Make `wearables_unified` the only persistence path for wearable raw payloads, samples, events, sources, sync runs, and cursors.
+- Add one shared post-ingest service that runs after any provider batch is accepted:
+  - project affected samples/events into habit logs
+  - rebuild metric facts for affected dates
+  - refresh read-model metadata
+  - emit durable wearable outbox events
+  - update connection sync state
+- Run projection/fact rebuild once per batch/date range, not once per sample/event.
+- Advance provider checkpoints and `last_sync_at` only after canonical ingest and post-ingest both succeed.
+- Treat Tinybird as analytics-only. It must not be required for habit totals or read-model correctness.
 
-### Connect And Sync Behavior
+### Sync Runs, Jobs, And Retries
 
-- `Connect` should:
-  - verify Ritual is running in Tauri,
-  - verify watcher runtime,
-  - call `get_biome_iphone_diagnostics`,
-  - show the details panel with the next required action.
-- `Sync Now` should:
-  - trigger the existing Biome outbox drain,
-  - refresh diagnostics,
-  - force-refresh Overview/Metrics/Logs/Calendar read models after success.
-- If source files exist but no events are queued, prompt the user to wait for the watcher scan or restart Computer Use.
-- If backend facts exist, mark the integration connected even if the local outbox is empty.
+- Make the backend sync/job registry the only owner of wearable sync orchestration.
+- Dashboard Trigger jobs should become thin callers of one backend enqueue endpoint during migration, then be removed once backend scheduling is stable.
+- Every sync run should record provider, user, trigger, date window, checkpoint before/after, fetched count, accepted count, duplicate count, rejected count, projected count, fact rebuild result, attempts, status, and error.
+- Supported run statuses: `queued`, `running`, `succeeded`, `partial`, `retryable_failed`, `terminal_failed`.
+- Use idempotency keys per `user/provider/window/trigger` so repeated manual syncs or scheduled syncs do not duplicate work.
 
-### Bridge Path For BiomeTest / Alternate iCloud Accounts
+### Raw Payload Capture And Replay
 
-- Add a Tauri import command that accepts a Biome JSONL export file and enqueues valid events into the same `biome_iphone_events.jsonl` outbox.
-- Add a details-panel section: `Using a different iCloud account?`
-- Show the exact helper command for the other macOS account:
-  - `/Users/Shared/ritual-watcher-biome-diagnostic --biome-export-jsonl /Users/Shared/ritual-biome-iphone-export.jsonl`
-- Add an `Import Export File` button that lets the daily Ritual account import `/Users/Shared/ritual-biome-iphone-export.jsonl`.
-- Validate imported rows against the existing Biome event schema, dedupe by stable event key, quarantine malformed rows, and never delete the source export.
-- After import, immediately trigger outbox drain and refresh integration/read-model status.
+- Capture raw provider payloads for every OAuth pull and webhook with provider, direction, user, external id, date window, digest, schema version, and received time.
+- Add replay jobs that re-run transform -> canonical ingest -> post-ingest from stored raw payloads.
+- Quarantine malformed or unsupported payloads with reason metadata.
+- Provide an admin/dev replay path for debugging failed sleep/workout/steps syncs without refetching from providers.
 
-### Backend And Read Models
+### Projection And Source Priority
 
-- Keep `/api/watcher/biome-ingest` as the canonical ingestion endpoint.
-- Add or expose a lightweight backend status endpoint for `iPhone Time` facts if existing summary data is insufficient:
-  - latest imported day,
-  - total active milliseconds,
-  - total event count,
-  - last fact rebuild timestamp if available.
-- Preserve current behavior:
-  - accepted Biome events rebuild `iPhone Time` metric facts,
-  - Logs show daily read-only `iPhone Time` rollups,
-  - raw app-level details stay in Metrics/activity detail.
-- Ensure status reads never overwrite known positive `iPhone Time` values with zero-heavy degraded payloads.
+- Move source-priority rules into explicit configuration, not hot-path policy mutation.
+- Keep sleep-provider priority visible and testable. Sleep Duration should accept sleep from Whoop, Apple Health, Oura, Garmin, and Fitbit but metric facts must choose one winning provider per day.
+- Preserve manual logs unless a provider projection is explicitly higher priority for the same canonical metric/date.
+- Overview, Metrics, Logs, and Calendar should read wearable-derived totals only from metric facts/read models.
+
+### API And UI
+
+- Split the oversized wearable API surface into thin endpoint groups: connections, sync runs/jobs, raw payloads, provider status, and provider callbacks/webhooks.
+- Integration cards should read one provider status object with last success, last failure, latest upstream record date, latest projected fact date, queued jobs, and latest sync run.
+- `Sync Now` should enqueue a canonical sync run, poll status, and invalidate Overview/Metrics/Logs/Calendar only after post-ingest succeeds.
+- Provider details should show whether data was fetched, stored, projected, and reflected in metric facts. This directly addresses “Whoop synced but Sleep Duration did not move.”
+
+## Implementation Order
+
+1. **Stabilize Whoop Sleep First**
+   - Add a Whoop regression test proving a new sleep payload increases Sleep Duration in habit logs, metric facts, Overview, and Metrics.
+   - Change Whoop checkpoint/`last_sync_at` updates so they only advance after canonical ingest plus post-ingest success.
+   - Move Whoop metric-fact rebuild out of `whoop_service.py` into the shared post-ingest service.
+
+2. **Make Provider Strategies Real**
+   - Implement real Whoop, Oura, and Garmin strategy classes.
+   - Replace `ServiceBackedProviderClient` and `AlreadyPersistedProviderSink` with provider fetch/transform output written by the canonical ingest service.
+   - Keep old service methods as compatibility wrappers temporarily, but they should call the new strategy pipeline.
+
+3. **Centralize Post-Ingest**
+   - Move projection, habit-log writes, metric-fact rebuild, read-model refresh metadata, and outbox emit into one shared post-ingest service.
+   - Remove inline per-row projection from the hot persistence path after parity tests pass.
+
+4. **Consolidate Orchestration**
+   - Make backend sync jobs the canonical scheduler/queue path.
+   - Convert dashboard Trigger jobs to call backend enqueue endpoints, then delete duplicate scheduler code after production parity.
+   - Add run-status endpoints and Integrations UI status display.
+
+5. **Raw Replay And Cleanup**
+   - Add replay tooling for raw payloads.
+   - Add provider fixture payloads and replay tests.
+   - Delete service-backed pipeline adapters and obsolete legacy write paths after stable production runs.
 
 ## Test Plan
 
-- Dashboard tests:
-  - Apple Screen Time card appears directly after Computer Use.
-  - Card is no longer `Coming soon`.
-  - Description matches the requested copy.
-  - Missing Biome files shows the same-iCloud warning.
-  - Existing backend facts mark the card connected.
-  - Queued outbox rows show `queued`, drain error shows `error`.
-- Tauri/Rust tests:
-  - `get_biome_iphone_diagnostics` reports source files, outbox count, committed cursors, and last drain.
-  - JSONL bridge import accepts valid rows, dedupes existing events, and quarantines malformed rows.
-  - Import does not advance committed cursors until backend acknowledgement.
-- Backend tests:
-  - Biome ingest still creates/updates `iPhone Time` facts.
-  - Status/summary endpoint returns latest imported day and non-zero totals when facts exist.
-  - Ignored pseudo-app events do not count toward `iPhone Time`.
-- End-to-end smoke:
-  - Same-iCloud Mac with Biome files: Connect -> source ready/connected -> Overview/Metrics show `iPhone Time`.
-  - Alternate iCloud account: export from BiomeTest -> import in Ritual -> drain -> read-model smoke passes -> `iPhone Time` visible.
-  - Network failure: queued rows remain and UI shows retryable error.
+- **Whoop sleep regression:** syncing a new Whoop sleep record increases Sleep Duration all-time and daily totals, and the result appears in Overview/Metrics without manual rebuild.
+- **Checkpoint safety:** API fetch success followed by canonical ingest or post-ingest failure does not advance checkpoint, `last_sync_at`, or “last successful sync.”
+- **Idempotency:** replaying the same Whoop/Oura/Garmin payload twice does not duplicate sleep, steps, workouts, recovery, or metric facts.
+- **Provider contracts:** fixture payloads for Whoop, Oura, and Garmin transform into canonical samples/events with correct dates, units, external ids, and source metadata.
+- **Post-ingest:** raw payload -> canonical sample/event -> habit log -> metric fact -> read model works through one shared path for all providers.
+- **Retries:** retryable provider failures keep jobs queued/retryable; auth revocation/rate-limit terminal cases are marked correctly.
+- **Raw replay:** stored raw payload replay can rebuild missing projections/facts without refetching from the provider.
+- **UI status:** Integrations shows fetched/stored/projected/fact status and does not report success based only on provider API fetch.
+- **Performance:** batch ingest should rebuild facts once per affected date range and avoid per-sample DB sessions where possible.
 
 ## Assumptions
 
-- V1 production path is desktop Biome, not the iOS companion Screen Time path.
-- The app cannot silently read another macOS user's Biome files; alternate-account support must use an explicit export/import bridge.
-- Apple Screen Time is the integration name; `iPhone Time` remains the habit/metric name in app data.
-- Same-iCloud Mac setup should be automated after the user opens Ritual desktop and the watcher runs.
-- The existing backend Biome ingest and metric-fact projection are reused rather than replaced.
+- Do not migrate Ritual to Midday’s tRPC architecture or Open Wearables’ Celery/Postgres shape.
+- `wearables_unified` remains the canonical storage foundation.
+- Tinybird remains optional analytics infrastructure, not the source of truth for wearable habit totals.
+- Existing provider data should be preserved; cleanup must be migration-compatible.
+- Dashboard Trigger jobs can remain temporarily during migration, but backend-owned scheduling is the final state.
+- The root plan document target is `/Users/nickgardner/Desktop/ritual-desktop-main/plan.md`.

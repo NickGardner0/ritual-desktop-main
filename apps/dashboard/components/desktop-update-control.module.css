@@ -1,0 +1,40 @@
+@keyframes loadingCell {
+  0%,
+  100% {
+    opacity: 0.24;
+    transform: scale(0.66);
+  }
+
+  45% {
+    opacity: 0.95;
+    transform: scale(1);
+  }
+}
+.grid {
+  display: grid;
+  width: 16px;
+  height: 10px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-rows: repeat(3, minmax(0, 1fr));
+  align-items: center;
+  justify-items: center;
+  flex: 0 0 auto;
+  gap: 1.5px;
+}
+
+.cell {
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  animation: loadingCell 1.15s cubic-bezier(0.66, 0, 0.34, 1) infinite;
+  animation-delay: var(--desktop-update-loading-delay);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cell {
+    animation: none;
+    opacity: 0.55;
+    transform: none;
+  }
+}

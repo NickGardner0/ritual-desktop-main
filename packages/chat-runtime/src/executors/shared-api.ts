@@ -6,7 +6,12 @@
  * avoid circular imports between orchestrator ↔ executors.
  */
 
-export const PYTHON_API_BASE = process.env.PYTHON_API_URL || process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
+export const PYTHON_API_BASE = (
+  process.env.PYTHON_API_URL
+  || process.env.BACKEND_URL
+  || process.env.NEXT_PUBLIC_PYTHON_API_URL
+  || 'http://127.0.0.1:8000'
+).replace(/\/$/, '');
 
 interface PythonApiRequestOptions {
   timeoutMs?: number;
@@ -122,6 +127,40 @@ export async function fetchPythonApiPost(
   if (!response.ok) {
     const errorText = await response.text();
     console.error(`❌ Python API POST error: ${response.status}`, errorText);
+    throw new Error(`API error: ${response.status} - ${errorText}`);
+  }
+
+  return response.json();
+}
+
+export async function fetchPythonApiPatch(
+  endpoint: string,
+  token: string,
+  body: Record<string, unknown>,
+  options?: PythonApiRequestOptions,
+) {
+  const url = `${PYTHON_API_BASE}${endpoint}`;
+  console.log(`🐍 Calling Python API (PATCH): ${url}`);
+
+  const { bearerToken, internalUserId } = parseCompositeToken(token);
+  const headers: Record<string, string> = {
+    'Authorization': `Bearer ${bearerToken}`,
+    'Content-Type': 'application/json',
+    ...(options?.extraHeaders || {}),
+  };
+  if (internalUserId) {
+    headers['x-internal-user-id'] = internalUserId;
+  }
+
+  const response = await fetchWithTimeout(url, {
+    method: 'PATCH',
+    headers,
+    body: JSON.stringify(body),
+  }, options?.timeoutMs);
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error(`❌ Python API PATCH error: ${response.status}`, errorText);
     throw new Error(`API error: ${response.status} - ${errorText}`);
   }
 

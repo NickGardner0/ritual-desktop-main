@@ -21,6 +21,16 @@ from sqlalchemy import select, and_, or_, func
 
 from database.connection import get_db_session
 from database.models import HabitDB, HabitLogDB, WearableConnectionDB, WearableEventDB, WearableSampleDB
+from services.habit_daily_policy import (
+    aggregate_logs_by_date,
+    daily_policy_v2_enabled,
+    is_sleep_like,
+    log_shadow_mismatch,
+)
+from services.computed_metrics_service import (
+    computed_metrics_service,
+    is_computed_computer_time_habit,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -32,29 +42,20 @@ class AnalyticsService:
     """
 
     def _completed_log_filter(self):
-        """Include completed logs and legacy rows where status is null."""
-        return or_(HabitLogDB.status == "completed", HabitLogDB.status.is_(None))
+        """Load every status accepted by the canonical policy for shadowing."""
+        return or_(
+            HabitLogDB.status == "completed",
+            HabitLogDB.status == "success",
+            HabitLogDB.status == "",
+            HabitLogDB.status.is_(None),
+        )
 
     def _use_max_duration_per_day(self, habit: HabitDB) -> bool:
         """
         Sleep-like habits should use MAX duration per day.
         Most duration habits (e.g. Computer Use, Coding) should SUM sessions.
         """
-        habit_name = (habit.name or "").strip().lower()
-        category = (habit.category or "").strip().lower()
-        metric_type = (habit.metric_type or "").strip().lower()
-        integration_source = (habit.integration_source or "").strip().lower()
-
-        if metric_type in {"sleep", "sleep_session", "sleep_duration", "in_bed"}:
-            return True
-
-        # Preserve legacy sleep behavior for common wearable sleep habits.
-        if "sleep" in habit_name:
-            return True
-        if "sleep" in category and integration_source in {"whoop", "oura", "apple_health", "fitbit", "garmin"}:
-            return True
-
-        return False
+        return is_sleep_like(habit)
 
     def _format_display_date(self, value: str) -> str:
         try:
@@ -216,23 +217,33 @@ class AnalyticsService:
             
             # Get logs for date range
             # Note: HabitLogDB doesn't have user_id - we filter by habit_ids which are already user-scoped
-            habit_ids = [h.id for h in habits]
-            logs_query = select(HabitLogDB).where(
-                and_(
-                    HabitLogDB.habit_id.in_(habit_ids),
-                    self._completed_log_filter(),
-                    HabitLogDB.date >= str(start_dt),
-                    HabitLogDB.date <= str(end_dt)
+            habit_ids = [h.id for h in habits if not is_computed_computer_time_habit(h)]
+            all_logs = []
+            if habit_ids:
+                logs_query = select(HabitLogDB).where(
+                    and_(
+                        HabitLogDB.habit_id.in_(habit_ids),
+                        self._completed_log_filter(),
+                        HabitLogDB.date >= str(start_dt),
+                        HabitLogDB.date <= str(end_dt)
+                    )
                 )
-            )
-            logs_result = await session.execute(logs_query)
-            all_logs = logs_result.scalars().all()
+                logs_result = await session.execute(logs_query)
+                all_logs = logs_result.scalars().all()
             
             # Calculate stats per habit
             stats = []
             for habit in habits:
-                habit_logs = [l for l in all_logs if l.habit_id == habit.id]
-                habit_stats = self._calculate_habit_stats(habit, habit_logs)
+                if is_computed_computer_time_habit(habit):
+                    habit_stats = await computed_metrics_service.build_habit_stats(
+                        user_id=user_id,
+                        habit=habit,
+                        start_date=str(start_dt),
+                        end_date=str(end_dt),
+                    )
+                else:
+                    habit_logs = [l for l in all_logs if l.habit_id == habit.id]
+                    habit_stats = self._calculate_habit_stats(habit, habit_logs)
                 stats.append(habit_stats)
             
             return {
@@ -279,6 +290,14 @@ class AnalyticsService:
                     "error": f"No habit found matching '{habit_name or habit_id}'",
                     "available_habits": await self._get_habit_names(session, user_id)
                 }
+
+            if is_computed_computer_time_habit(habit):
+                return await computed_metrics_service.build_daily_breakdown(
+                    user_id=user_id,
+                    habit=habit,
+                    start_date=str(start_dt),
+                    end_date=str(end_dt),
+                )
             
             # Get logs (habit is already user-scoped, so no need to filter by user_id)
             query_start = start_dt - timedelta(days=1) if timezone else start_dt
@@ -1093,6 +1112,19 @@ class AnalyticsService:
         }
     
     def _aggregate_by_date(self, habit: HabitDB, logs: List[HabitLogDB]) -> Dict[str, Dict[str, Any]]:
+        canonical = aggregate_logs_by_date(habit, logs)
+        legacy = self._aggregate_by_date_legacy(habit, logs)
+        log_shadow_mismatch(
+            consumer="analytics",
+            subject_id=getattr(habit, "user_id", None),
+            legacy=legacy,
+            canonical=canonical,
+        )
+        if daily_policy_v2_enabled(getattr(habit, "user_id", None)):
+            return canonical
+        return legacy
+
+    def _aggregate_by_date_legacy(self, habit: HabitDB, logs: List[HabitLogDB]) -> Dict[str, Dict[str, Any]]:
         """
         Aggregate logs by date.
         - For sleep-like duration habits: takes MAX per day
@@ -1105,6 +1137,9 @@ class AnalyticsService:
         use_max_duration = self._use_max_duration_per_day(habit)
         
         for log in logs:
+            status = getattr(log, "status", None)
+            if status is not None and status.strip().lower() != "completed":
+                continue
             date = log.date
             if date not in by_date:
                 by_date[date] = {"duration": 0, "amount": 0, "count": 0}

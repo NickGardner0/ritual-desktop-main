@@ -68,22 +68,35 @@ class _FakeBackendHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
         path, query = self._record_request()
 
-        if path == "/api/calendar/scheduled-blocks":
+        if path == "/api/calendar/range":
             return self._write_json(
-                [
-                    {
-                        "title": "Deep Work",
-                        "day": query.get("start_date", ["2026-04-29"])[0],
-                        "start_minutes": 540,
-                        "end_minutes": 660,
-                    },
-                    {
-                        "title": "Workout",
-                        "day": query.get("start_date", ["2026-04-29"])[0],
-                        "start_minutes": 720,
-                        "end_minutes": 780,
-                    },
-                ]
+                {
+                    "timezone": query.get("timezone", ["America/New_York"])[0],
+                    "mode": query.get("mode", ["plan"])[0],
+                    "occurrences": [
+                        {
+                            "id": "occurrence-1",
+                            "event_id": "event-1",
+                            "title": "Deep Work",
+                            "start_at": "2026-04-29T13:00:00Z",
+                            "end_at": "2026-04-29T15:00:00Z",
+                            "all_day": False,
+                            "kind": "event",
+                        },
+                        {
+                            "id": "occurrence-2",
+                            "event_id": "event-2",
+                            "title": "Workout",
+                            "start_at": "2026-04-29T16:00:00Z",
+                            "end_at": "2026-04-29T17:00:00Z",
+                            "all_day": False,
+                            "kind": "event",
+                        },
+                    ],
+                    "tasks": [],
+                    "workflows": [],
+                    "proposals": [],
+                }
             )
 
         if path == "/api/analytics/streaks":
@@ -232,9 +245,11 @@ class WorkflowExecutorRoundTripTests(unittest.IsolatedAsyncioTestCase):
         next_env.update(
             {
                 "INTERNAL_BACKEND_TOKEN": INTEGRATION_TOKEN,
+                "PYTHON_API_URL": f"http://127.0.0.1:{cls.fake_backend_port}",
                 "NEXT_PUBLIC_PYTHON_API_URL": f"http://127.0.0.1:{cls.fake_backend_port}",
                 "NEXT_TELEMETRY_DISABLED": "1",
                 "OPENAI_API_KEY": "",
+                "RITUAL_WORKFLOW_EXECUTOR_DISABLE_OPENAI": "1",
                 "PORT": str(cls.next_port),
             }
         )
@@ -247,7 +262,7 @@ class WorkflowExecutorRoundTripTests(unittest.IsolatedAsyncioTestCase):
 
         cls.next_log_file = tempfile.NamedTemporaryFile(mode="w+", delete=False)
         cls.next_process = subprocess.Popen(
-            [str(next_binary), "dev", "-p", str(cls.next_port)],
+            [str(next_binary), "dev", "--webpack", "-p", str(cls.next_port)],
             cwd=DASHBOARD_DIR,
             env=next_env,
             stdout=cls.next_log_file,
@@ -322,19 +337,22 @@ class WorkflowExecutorRoundTripTests(unittest.IsolatedAsyncioTestCase):
             "INTERNAL_BACKEND_TOKEN",
             INTEGRATION_TOKEN,
         ), patch.object(workflow_service_module, "WORKFLOW_EXECUTION_TIMEOUT", 60.0):
-            payload = await workflow_service._call_dashboard_executor(
-                user_id=INTEGRATION_USER_ID,
-                run_id="workflow-run-1",
-                workflow_kind="morning_brief",
-                timezone_name="America/New_York",
-                config={
-                    "include_calendar": True,
-                    "include_streaks": True,
-                    "include_biometrics": True,
-                    "include_weekly_context": True,
-                },
-                window=window,
-            )
+            try:
+                payload = await workflow_service._call_dashboard_executor(
+                    user_id=INTEGRATION_USER_ID,
+                    run_id="workflow-run-1",
+                    workflow_kind="morning_brief",
+                    timezone_name="America/New_York",
+                    config={
+                        "include_calendar": True,
+                        "include_streaks": True,
+                        "include_biometrics": True,
+                        "include_weekly_context": True,
+                    },
+                    window=window,
+                )
+            except Exception as exc:
+                raise AssertionError(f"{exc}\nNext logs:\n{self._read_next_logs()}") from exc
 
         self.assertEqual(payload["artifact"]["kind"], "morning_brief")
         self.assertEqual(payload["plan"]["title"], "Morning Brief")
@@ -346,7 +364,7 @@ class WorkflowExecutorRoundTripTests(unittest.IsolatedAsyncioTestCase):
         paths = {entry["path"] for entry in _FakeBackendHandler.requests}
         self.assertTrue(
             {
-                "/api/calendar/scheduled-blocks",
+                "/api/calendar/range",
                 "/api/analytics/streaks",
                 "/api/v1/biometrics/heart-rate/day-summary",
                 "/api/analytics/stats",

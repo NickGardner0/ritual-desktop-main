@@ -34,6 +34,7 @@ mod browser;
 mod browser_heartbeat_server;
 mod config;
 mod database;
+mod paths;
 pub mod icons;
 mod macos;
 mod sync_queue;

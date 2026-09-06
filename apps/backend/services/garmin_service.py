@@ -17,10 +17,11 @@ from typing import Any, Dict, Optional
 import httpx
 
 from services.token_crypto import token_crypto
-from services.unified_wearables_service import (
+from services.wearables_unified import (
     wearable_connection_service,
     wearable_sync_service,
 )
+from services import garmin_account_payload
 
 logger = logging.getLogger(__name__)
 
@@ -136,31 +137,10 @@ class GarminService:
             return payload if isinstance(payload, dict) else {}
 
     async def fetch_garmin_account_payload(self, user_id: str) -> Dict[str, Any]:
-        access_token = await self.get_valid_access_token(user_id)
-        provider_user_id = await self.get_user_id(access_token)
-        permissions = await self.get_permissions(access_token)
-        connection = await wearable_connection_service.get_connection(user_id, "garmin")
-        return {
-            "access_token": access_token,
-            "provider_user_id": provider_user_id,
-            "permissions": permissions,
-            "connection_provider_user_id": connection.provider_user_id if connection else None,
-            "refresh_token": token_crypto.decrypt(connection.refresh_token) if connection and connection.refresh_token else None,
-            "token_expires_at": connection.token_expires_at if connection else None,
-        }
+        return await garmin_account_payload.fetch_garmin_account_payload(self, user_id)
 
     async def write_garmin_account_payload(self, user_id: str, payload: Dict[str, Any]) -> None:
-        await wearable_connection_service.get_or_create_connection(
-            user_id=user_id,
-            provider="garmin",
-            auth_method="oauth",
-            provider_user_id=payload["provider_user_id"] or payload["connection_provider_user_id"],
-            access_token=payload["access_token"],
-            refresh_token=payload["refresh_token"],
-            token_expires_at=payload["token_expires_at"],
-            settings={"permissions": payload["permissions"]},
-            status="active",
-        )
+        await garmin_account_payload.write_garmin_account_payload(user_id, payload)
 
     async def sync_garmin_account(self, user_id: str) -> Dict[str, Any]:
         payload = await self.fetch_garmin_account_payload(user_id)

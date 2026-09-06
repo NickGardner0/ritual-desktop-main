@@ -197,7 +197,7 @@ is_valid = hmac.compare_digest(expected_b64, provided_signature)
 
 ```bash
 cd backend
-python3 scripts/migrate_add_wearables_tables.py
+python apps/backend/scripts/run_database_migrations.py
 ```
 
 ### 2. Start Backend

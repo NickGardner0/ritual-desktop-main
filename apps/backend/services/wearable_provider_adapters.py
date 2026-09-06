@@ -14,9 +14,6 @@ from dataclasses import dataclass
 from typing import Any, Dict, Optional
 from urllib.parse import urlencode
 
-from services.unified_wearables_service import PROVIDER_CAPABILITIES
-
-
 @dataclass
 class AuthorizationRequest:
     authorization_url: str
@@ -153,41 +150,13 @@ class FitbitAdapter(WearableProviderAdapter):
         return False
 
 
-ADAPTERS = {
-    "apple_health": AppleHealthAdapter(),
-    "whoop": WhoopAdapter(),
-    "garmin": GarminAdapter(),
-    "oura": OuraAdapter(),
-    "fitbit": FitbitAdapter(),
-}
-
-
 def get_provider_adapter(provider: str) -> WearableProviderAdapter:
-    adapter = ADAPTERS.get(provider)
-    if adapter is None:
-        raise ValueError(f"Unsupported provider: {provider}")
-    return adapter
+    from services.wearable_provider_definitions import get_provider_definition
+
+    return get_provider_definition(provider).adapter
 
 
 def list_provider_defs() -> list[dict[str, Any]]:
-    items = []
-    for provider, definition in PROVIDER_CAPABILITIES.items():
-        items.append(
-            {
-                "provider": provider,
-                "display_name": definition.display_name,
-                "auth_method": definition.auth_method,
-                "supports_sync": True,
-                "delivery_modes": list(definition.delivery_modes),
-                "supports_webhook": definition.supports_webhook,
-                "supports_import_fallback": definition.supports_import_fallback,
-                "supports_metric_selection": definition.supports_metric_selection,
-                "supports_backfill": definition.supports_backfill,
-                "supports_async_backfill": definition.supports_async_backfill,
-                "supports_live_sync_mode_selection": definition.supports_live_sync_mode_selection,
-                "max_historical_days": definition.max_historical_days,
-                "default_live_sync_mode": definition.default_live_sync_mode,
-                "supports_anchor_confirmed_ingest": definition.supports_anchor_confirmed_ingest,
-            }
-        )
-    return items
+    from services.wearable_provider_definitions import list_provider_definitions, serialize_provider_definition
+
+    return [serialize_provider_definition(definition) for definition in list_provider_definitions()]

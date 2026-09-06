@@ -36,7 +36,7 @@ export function MetricsShareModal({
           <button
             type="button"
             onClick={closeShareModal}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[rgba(39,37,30,0.08)] bg-white text-[rgba(39,37,30,0.4)] transition-all duration-150 hover:bg-gray-50 hover:text-[#27251E]"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-sm border border-[rgba(39,37,30,0.08)] bg-white text-[rgba(39,37,30,0.4)] transition-all duration-150 hover:bg-[#F3F3F3] hover:text-[#27251E]"
             aria-label="Close share screenshot modal"
           >
             <X className="h-4 w-4" />
@@ -71,7 +71,7 @@ export function MetricsShareModal({
             type="button"
             onClick={copyShareImage}
             disabled={!shareImageUrl || isCapturing}
-            className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-[rgba(39,37,30,0.08)] bg-white px-3 text-[13px] font-medium tracking-[-0.2px] text-[#2E2C24] transition-all duration-150 hover:bg-gray-50 hover:shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-sm border border-[rgba(39,37,30,0.08)] bg-white px-3 text-[13px] font-medium tracking-[-0.2px] text-[#2E2C24] transition-all duration-150 hover:bg-[#F3F3F3] hover:shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Copy className="h-3.5 w-3.5" />
             {copyState === 'copied' ? 'Copied!' : copyState === 'failed' ? 'Copy failed' : 'Copy image'}

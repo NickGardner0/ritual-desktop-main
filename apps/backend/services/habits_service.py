@@ -7,20 +7,40 @@ import uuid
 import logging
 import json
 import asyncio
-from datetime import datetime, timezone
+from datetime import date as calendar_date, datetime, timezone
 from typing import List, Optional, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import case, or_, select, update, delete, func
+from sqlalchemy import and_, case, or_, select, update, delete, func
 from sqlalchemy.exc import SQLAlchemyError
 
-from models.habit_models import Habit, HabitCreate, HabitUpdate, HabitLog, HabitLogCreate
+from models.habit_models import Habit, HabitCreate, HabitUpdate, HabitLog, HabitLogCreate, HabitLogUpdate
 from database.connection import get_db_session
 from database.models import HabitDB, HabitLogDB, UserDB, HabitAliasDB
 from database.helpers import habit_db_to_pydantic, habit_log_db_to_pydantic
 from services.realtime import websocket_manager
 from services.tinybird_service import TinybirdService
+from services.habit_daily_policy import daily_policy_v2_enabled, is_sleep_like, log_shadow_mismatch
+from services.secondary_job_runner import secondary_job_runner
+from services.action_receipt_service import action_receipt_service
+from services.computed_metrics_service import is_computed_computer_time_habit
 
 logger = logging.getLogger(__name__)
+
+
+class HabitLogNotFoundError(Exception):
+    """The requested log does not exist or is not owned by the caller."""
+
+
+class HabitLogRevisionConflictError(Exception):
+    """The caller attempted to update a stale habit-log revision."""
+
+
+class HabitLogUpdateValidationError(Exception):
+    """The requested habit-log edit is invalid."""
+
+
+class ComputedMetricReadOnlyError(Exception):
+    """A derived system metric cannot accept manual habit-log writes."""
 
 
 # Phase 5A: Built-in synonym map for common habit types
@@ -66,22 +86,7 @@ class HabitsService:
         )
 
     def _is_sleep_like_habit_db(self, habit: HabitDB) -> bool:
-        metric_type = (habit.metric_type or "").strip().lower()
-        habit_name = (habit.name or "").strip().lower()
-        category = (habit.category or "").strip().lower()
-        integration_source = (habit.integration_source or "").strip().lower()
-
-        if metric_type in {"sleep", "sleep_session", "sleep_duration", "sleep_total", "in_bed"}:
-            return True
-        if "sleep" in habit_name:
-            return True
-        return "sleep" in category and integration_source in {
-            "whoop",
-            "oura",
-            "apple_health",
-            "fitbit",
-            "garmin",
-        }
+        return is_sleep_like(habit)
 
     def _overview_daily_value_from_row(
         self,
@@ -97,23 +102,59 @@ class HabitsService:
 
         if "hour" in unit:
             if duration_value > 0:
-                return duration_value / 3600
-            if amount_count > 0:
-                return amount_value
-            return float(row.entry_count or 0)
-
-        if "minute" in unit:
+                legacy_value = duration_value / 3600
+            elif amount_count > 0:
+                legacy_value = amount_value
+            else:
+                legacy_value = float(row.entry_count or 0)
+        elif "minute" in unit:
             if duration_value > 0:
-                return duration_value / 60
-            if amount_count > 0:
-                return amount_value
-            return float(row.entry_count or 0)
+                legacy_value = duration_value / 60
+            elif amount_count > 0:
+                legacy_value = amount_value
+            else:
+                legacy_value = float(row.entry_count or 0)
+        elif amount_count > 0:
+            legacy_value = amount_value
+        elif duration_value > 0:
+            legacy_value = duration_value / 3600
+        else:
+            legacy_value = float(row.entry_count or 0)
 
-        if amount_count > 0:
-            return amount_value
-        if duration_value > 0:
-            return duration_value / 3600
-        return float(row.entry_count or 0)
+        duration_in_unit = duration_value
+        if "hour" in unit:
+            duration_in_unit /= 3600
+        elif "minute" in unit:
+            duration_in_unit /= 60
+        canonical_amount = float(
+            getattr(row, "canonical_max_amount" if use_max_per_day else "canonical_amount", 0) or 0
+        )
+        occurrence_count = float(getattr(row, "occurrence_count", 0) or 0)
+        if use_max_per_day:
+            canonical_candidates = []
+            if duration_in_unit > 0:
+                canonical_candidates.append(duration_in_unit)
+            if int(getattr(row, "canonical_amount_count", 0) or 0) > 0:
+                canonical_candidates.append(canonical_amount)
+            if occurrence_count:
+                canonical_candidates.append(1.0)
+            canonical_value = max(canonical_candidates) if canonical_candidates else 0.0
+        else:
+            canonical_value = duration_in_unit + canonical_amount + occurrence_count
+        if getattr(row, "ambiguous_count", 0) or occurrence_count:
+            logger.info(
+                "habit_daily_policy overview_shapes habit=%s both=%s neither=%s",
+                habit.id,
+                int(getattr(row, "ambiguous_count", 0) or 0),
+                int(occurrence_count),
+            )
+        log_shadow_mismatch(
+            consumer="habits_overview",
+            subject_id=habit.user_id,
+            legacy=legacy_value,
+            canonical=canonical_value,
+        )
+        return canonical_value if daily_policy_v2_enabled(habit.user_id) else legacy_value
 
     def _build_overview_stat(
         self,
@@ -252,6 +293,48 @@ class HabitsService:
                 max_amount = func.coalesce(func.max(func.coalesce(HabitLogDB.amount, 0)), 0).label("max_amount")
                 amount_count = func.count(HabitLogDB.amount).label("amount_count")
                 entry_count = func.count(HabitLogDB.id).label("entry_count")
+                canonical_amount = func.coalesce(
+                    func.sum(
+                        case(
+                            (HabitLogDB.duration > 0, 0),
+                            else_=func.coalesce(HabitLogDB.amount, 0),
+                        )
+                    ),
+                    0,
+                ).label("canonical_amount")
+                canonical_amount_count = func.coalesce(
+                    func.sum(
+                        case(
+                            (and_(func.coalesce(HabitLogDB.duration, 0) <= 0, HabitLogDB.amount.is_not(None)), 1),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ).label("canonical_amount_count")
+                canonical_max_amount = func.max(
+                    case(
+                        (and_(func.coalesce(HabitLogDB.duration, 0) <= 0, HabitLogDB.amount.is_not(None)), HabitLogDB.amount),
+                        else_=None,
+                    )
+                ).label("canonical_max_amount")
+                occurrence_count = func.coalesce(
+                    func.sum(
+                        case(
+                            (and_(func.coalesce(HabitLogDB.duration, 0) <= 0, HabitLogDB.amount.is_(None)), 1),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ).label("occurrence_count")
+                ambiguous_count = func.coalesce(
+                    func.sum(
+                        case(
+                            (and_(HabitLogDB.duration > 0, HabitLogDB.amount.is_not(None)), 1),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ).label("ambiguous_count")
 
                 logs_query = (
                     select(
@@ -263,6 +346,11 @@ class HabitsService:
                         max_amount,
                         amount_count,
                         entry_count,
+                        canonical_amount,
+                        canonical_amount_count,
+                        canonical_max_amount,
+                        occurrence_count,
+                        ambiguous_count,
                     )
                     .where(
                         HabitLogDB.habit_id.in_(habit_ids),
@@ -327,66 +415,71 @@ class HabitsService:
             logger.error("Background task '%s' failed: %s", task_name, e)
 
     def _fire_habit_log_side_effects(
-        self, habit_log: HabitLog, habit: Habit, user_id: str
+        self,
+        habit_log: HabitLog,
+        habit: Habit,
+        user_id: str,
+        *,
+        revision: Optional[int] = None,
     ):
-        """Fire-and-forget Tinybird sync, Typesense indexing, and WebSocket notification for a habit log."""
+        """Bounded secondary Tinybird/WebSocket fan-out for a habit log."""
+        if getattr(habit_log, "was_inserted", True) is False:
+            return
+
+        occurrence_suffix = f":revision:{revision}" if revision is not None else ""
+
         if self.tinybird_enabled:
             asyncio.create_task(
-                self._safe_background_task(
-                    self._sync_habit_log_to_tinybird(habit_log, habit, user_id),
-                    f"tinybird_sync_log:{habit_log.id}",
+                secondary_job_runner.enqueue(
+                    job_class="analytics",
+                    name=f"tinybird_sync_log:{habit_log.id}{occurrence_suffix}",
+                    dedupe_key=f"tinybird_sync_log:{habit_log.id}{occurrence_suffix}",
+                    coro_factory=lambda hl=habit_log, h=habit, uid=user_id: self._sync_habit_log_to_tinybird(
+                        hl, h, uid
+                    ),
                 )
             )
 
-        async def _index_log():
-            from services.search_service import search_service
-            await search_service.index_habit_log(
-                habit_log.model_dump(),
+        async def _notify():
+            await websocket_manager.notify_habit_logged(
+                {
+                    "id": habit_log.id,
+                    "habit_id": habit_log.habit_id,
+                    "habit_name": habit_log.habit_name,
+                    "date": habit_log.date,
+                    "completed_at": habit_log.completed_at,
+                    "amount": habit_log.amount,
+                    "duration": habit_log.duration,
+                    "status": habit_log.status,
+                },
                 user_id,
-                habit_name=habit.name,
-                category=habit.category,
             )
 
         asyncio.create_task(
-            self._safe_background_task(_index_log(), f"typesense_index_log:{habit_log.id}")
-        )
-
-        asyncio.create_task(
-            self._safe_background_task(
-                websocket_manager.notify_habit_logged(
-                    {
-                        "id": habit_log.id,
-                        "habit_id": habit_log.habit_id,
-                        "habit_name": habit_log.habit_name,
-                        "date": habit_log.date,
-                        "completed_at": habit_log.completed_at,
-                        "amount": habit_log.amount,
-                        "duration": habit_log.duration,
-                        "status": habit_log.status,
-                    },
-                    user_id,
-                ),
-                f"websocket_notify_log:{habit_log.id}",
+            secondary_job_runner.enqueue(
+                job_class="notify",
+                name=f"websocket_notify_log:{habit_log.id}{occurrence_suffix}",
+                dedupe_key=f"websocket_notify_log:{habit_log.id}{occurrence_suffix}",
+                coro_factory=_notify,
             )
         )
 
-    def _fire_habit_definition_side_effects(self, habit: Habit, user_id: str):
-        """Fire-and-forget Tinybird sync and Typesense indexing for a habit definition."""
+    def _fire_habit_definition_side_effects(
+        self, habit: Habit, user_id: str, *, was_inserted: bool = True
+    ):
+        """Bounded secondary Tinybird fan-out for a habit definition."""
+        if was_inserted is False:
+            return
+
         if self.tinybird_enabled:
             asyncio.create_task(
-                self._safe_background_task(
-                    self._sync_habit_to_tinybird(habit),
-                    f"tinybird_sync_habit:{habit.id}",
+                secondary_job_runner.enqueue(
+                    job_class="analytics",
+                    name=f"tinybird_sync_habit:{habit.id}",
+                    dedupe_key=f"tinybird_sync_habit:{habit.id}",
+                    coro_factory=lambda h=habit: self._sync_habit_to_tinybird(h),
                 )
             )
-
-        async def _index_habit():
-            from services.search_service import search_service
-            await search_service.index_habit(habit.model_dump(), user_id)
-
-        asyncio.create_task(
-            self._safe_background_task(_index_habit(), f"typesense_index_habit:{habit.id}")
-        )
 
     async def create_habit(self, habit_data: HabitCreate, user_id: str) -> Habit:
         """
@@ -394,6 +487,38 @@ class HabitsService:
         """
         async with get_db_session() as session:
             try:
+                client_event_id = getattr(habit_data, "client_event_id", None)
+                conversation_id = getattr(habit_data, "conversation_id", None)
+                actor_type = getattr(habit_data, "actor_type", None) or "user"
+                actor_ref = getattr(habit_data, "actor_ref", None) or conversation_id
+                source = getattr(habit_data, "source", None) or "manual"
+                should_receipt = actor_type == "assistant" or bool(conversation_id)
+
+                if client_event_id:
+                    existing_receipt = await action_receipt_service.get_db_by_client_event_id(
+                        session, user_id, client_event_id
+                    )
+                    if existing_receipt and existing_receipt.after_json:
+                        try:
+                            after = json.loads(existing_receipt.after_json)
+                        except (TypeError, json.JSONDecodeError):
+                            after = None
+                        habit_id = (after or {}).get("id")
+                        if habit_id:
+                            existing = await session.execute(
+                                select(HabitDB).where(
+                                    HabitDB.id == habit_id,
+                                    HabitDB.user_id == user_id,
+                                )
+                            )
+                            existing_habit = existing.scalar_one_or_none()
+                            if existing_habit:
+                                return habit_db_to_pydantic(
+                                    existing_habit,
+                                    was_inserted=False,
+                                    receipt_id=existing_receipt.id,
+                                )
+
                 name_key = (habit_data.name or "").strip().lower()
                 if name_key:
                     dup = await session.execute(
@@ -404,12 +529,31 @@ class HabitsService:
                     )
                     existing_row = dup.scalar_one_or_none()
                     if existing_row:
+                        incoming_computer_time = (
+                            str(habit_data.metric_type or "").strip().lower() == "computer_time"
+                        )
+                        safe_legacy_computer_time = (
+                            incoming_computer_time
+                            and existing_row.is_custom is False
+                            and not (existing_row.metric_type or "").strip()
+                            and not (existing_row.integration_source or "").strip()
+                            and (existing_row.name or "").strip().lower()
+                            in {"computer time", "computer use", "computer activity"}
+                        )
+                        if safe_legacy_computer_time:
+                            existing_row.metric_type = "computer_time"
+                            existing_row.integration_source = "ritual_watcher"
+                            existing_row.sensor_type = "Automatic"
+                            existing_row.unit_type = existing_row.unit_type or "Hours"
+                            existing_row.updated_at = datetime.utcnow()
+                            await session.commit()
+                            await session.refresh(existing_row)
                         logger.info(
                             "Habit '%s' already exists for user %s; returning existing",
                             habit_data.name,
                             user_id,
                         )
-                        return habit_db_to_pydantic(existing_row)
+                        return habit_db_to_pydantic(existing_row, was_inserted=False)
 
                 # Create habit record
                 habit_db = HabitDB(
@@ -428,14 +572,41 @@ class HabitsService:
                 )
                 
                 session.add(habit_db)
+                await session.flush()
+
+                receipt_id = None
+                if should_receipt:
+                    habit_payload = habit_db_to_pydantic(habit_db).model_dump(mode="json")
+                    receipt = await action_receipt_service.create_receipt(
+                        session,
+                        user_id=user_id,
+                        action_kind="createHabit",
+                        capability="habits.write",
+                        target_ref=habit_db.id,
+                        conversation_id=conversation_id,
+                        client_event_id=client_event_id,
+                        before=None,
+                        after=habit_payload,
+                        undo={"op": "delete_habit", "habit_id": habit_db.id},
+                        metadata={
+                            "source": source,
+                            "actor_type": actor_type,
+                            "actor_ref": actor_ref,
+                            "tool": "createHabit",
+                        },
+                    )
+                    receipt_id = receipt.id
+
                 await session.commit()
                 await session.refresh(habit_db)
                 
                 # Convert to Pydantic model
-                habit = habit_db_to_pydantic(habit_db)
+                habit = habit_db_to_pydantic(
+                    habit_db, was_inserted=True, receipt_id=receipt_id
+                )
 
                 # Fire-and-forget: Tinybird sync + Typesense indexing (background)
-                self._fire_habit_definition_side_effects(habit, user_id)
+                self._fire_habit_definition_side_effects(habit, user_id, was_inserted=True)
 
                 if self._is_whoop_heart_rate_habit(habit):
                     try:
@@ -603,6 +774,38 @@ class HabitsService:
                 habit = await self.get_habit_by_id(habit_id, user_id)
                 if not habit:
                     raise Exception("Habit not found or not authorized")
+                if is_computed_computer_time_habit(habit):
+                    raise ComputedMetricReadOnlyError(
+                        "Computer Time is calculated automatically from Ritual Watcher rollups."
+                    )
+
+                client_event_id = getattr(log_data, "client_event_id", None)
+                conversation_id = getattr(log_data, "conversation_id", None)
+                actor_type = getattr(log_data, "actor_type", None) or "user"
+                actor_ref = getattr(log_data, "actor_ref", None) or conversation_id
+                source = getattr(log_data, "source", None) or "manual"
+                should_receipt = actor_type == "assistant" or bool(conversation_id)
+
+                if client_event_id:
+                    existing = await session.execute(
+                        select(HabitLogDB).where(
+                            HabitLogDB.habit_id == habit_id,
+                            HabitLogDB.client_event_id == client_event_id,
+                        )
+                    )
+                    existing_log = existing.scalar_one_or_none()
+                    if existing_log:
+                        receipt_id = None
+                        if client_event_id:
+                            receipt_row = await action_receipt_service.get_db_by_client_event_id(
+                                session, user_id, client_event_id
+                            )
+                            receipt_id = receipt_row.id if receipt_row else None
+                        return habit_log_db_to_pydantic(
+                            existing_log,
+                            was_inserted=False,
+                            receipt_id=receipt_id,
+                        )
                 
                 # Create habit log (include habit_name for denormalization)
                 log_db = HabitLogDB(
@@ -614,7 +817,11 @@ class HabitsService:
                     date=log_data.date,
                     completed_at=log_data.completed_at,
                     status=log_data.status,
-                    notes=log_data.notes
+                    notes=log_data.notes,
+                    client_event_id=client_event_id,
+                    source=source,
+                    actor_type=actor_type,
+                    actor_ref=actor_ref,
                 )
 
                 # Location enrichment (Phase: Location Tracking)
@@ -628,10 +835,42 @@ class HabitsService:
                     logger.debug("Location enrichment skipped for habit log: %s", _loc_exc)
 
                 session.add(log_db)
+                await session.flush()
+
+                receipt_id = None
+                if should_receipt:
+                    after_payload = habit_log_db_to_pydantic(log_db).model_dump(mode="json")
+                    receipt = await action_receipt_service.create_receipt(
+                        session,
+                        user_id=user_id,
+                        action_kind="logHabit",
+                        capability="habits.write",
+                        target_ref=log_db.id,
+                        conversation_id=conversation_id,
+                        client_event_id=client_event_id,
+                        before=None,
+                        after=after_payload,
+                        undo={
+                            "op": "delete_habit_log",
+                            "habit_id": habit_id,
+                            "log_id": log_db.id,
+                        },
+                        metadata={
+                            "source": source,
+                            "actor_type": actor_type,
+                            "actor_ref": actor_ref,
+                            "tool": "logHabit",
+                            "habit_name": habit.name,
+                        },
+                    )
+                    receipt_id = receipt.id
+
                 await session.commit()
                 await session.refresh(log_db)
                 
-                habit_log = habit_log_db_to_pydantic(log_db)
+                habit_log = habit_log_db_to_pydantic(
+                    log_db, was_inserted=True, receipt_id=receipt_id
+                )
                 await self._refresh_metric_facts_for_logs(user_id=user_id, logs=[log_db])
 
                 # Fire-and-forget: Tinybird + Typesense + WebSocket (background)
@@ -642,6 +881,145 @@ class HabitsService:
             except SQLAlchemyError as e:
                 await session.rollback()
                 raise Exception(f"Failed to log habit: {str(e)}")
+
+    async def update_habit_log(
+        self,
+        habit_id: str,
+        log_id: str,
+        update_data: HabitLogUpdate,
+        user_id: str,
+    ) -> HabitLog:
+        """Apply an idempotent, ownership-scoped optimistic update to a habit log."""
+        editable_fields = {"status", "date", "completed_at", "integration_source"}
+        requested_fields = update_data.model_fields_set & editable_fields
+        if not requested_fields:
+            raise HabitLogUpdateValidationError("At least one editable field is required")
+
+        values: Dict[str, Any] = {}
+        if "status" in requested_fields:
+            values["status"] = update_data.status
+        if "date" in requested_fields:
+            try:
+                if update_data.date is None:
+                    raise ValueError
+                calendar_date.fromisoformat(update_data.date)
+            except ValueError as exc:
+                raise HabitLogUpdateValidationError("date must be YYYY-MM-DD") from exc
+            values["date"] = update_data.date
+        if "completed_at" in requested_fields:
+            if update_data.completed_at:
+                try:
+                    datetime.fromisoformat(update_data.completed_at.replace("Z", "+00:00"))
+                except ValueError as exc:
+                    raise HabitLogUpdateValidationError(
+                        "completed_at must be an ISO-8601 datetime"
+                    ) from exc
+            values["completed_at"] = update_data.completed_at
+        if "integration_source" in requested_fields:
+            source = update_data.integration_source
+            if source is not None and not source.strip():
+                raise HabitLogUpdateValidationError("integration_source cannot be blank")
+            values["source"] = source.strip() if source is not None else None
+
+        habit = await self.get_habit_by_id(habit_id, user_id)
+        if not habit:
+            raise HabitLogNotFoundError("Habit log not found")
+
+        async with get_db_session() as session:
+            try:
+                owned_log_result = await session.execute(
+                    select(HabitLogDB)
+                    .join(HabitDB, HabitDB.id == HabitLogDB.habit_id)
+                    .where(
+                        HabitLogDB.id == log_id,
+                        HabitLogDB.habit_id == habit_id,
+                        HabitDB.user_id == user_id,
+                    )
+                )
+                log_row = owned_log_result.scalar_one_or_none()
+                if not log_row:
+                    raise HabitLogNotFoundError("Habit log not found")
+
+                if log_row.last_update_idempotency_key == update_data.idempotency_key:
+                    return habit_log_db_to_pydantic(log_row)
+                if log_row.revision != update_data.expected_revision:
+                    raise HabitLogRevisionConflictError(
+                        f"Expected revision {update_data.expected_revision}, current revision is {log_row.revision}"
+                    )
+
+                next_revision = update_data.expected_revision + 1
+                claim = await session.execute(
+                    update(HabitLogDB)
+                    .where(
+                        HabitLogDB.id == log_id,
+                        HabitLogDB.habit_id == habit_id,
+                        HabitLogDB.revision == update_data.expected_revision,
+                    )
+                    .values(
+                        **values,
+                        revision=next_revision,
+                        last_update_idempotency_key=update_data.idempotency_key,
+                    )
+                    .execution_options(synchronize_session=False)
+                )
+                if int(claim.rowcount or 0) != 1:
+                    await session.rollback()
+                    session.expire_all()
+                    current_result = await session.execute(
+                        select(HabitLogDB)
+                        .join(HabitDB, HabitDB.id == HabitLogDB.habit_id)
+                        .where(
+                            HabitLogDB.id == log_id,
+                            HabitLogDB.habit_id == habit_id,
+                            HabitDB.user_id == user_id,
+                        )
+                    )
+                    current = current_result.scalar_one_or_none()
+                    if current and current.last_update_idempotency_key == update_data.idempotency_key:
+                        return habit_log_db_to_pydantic(current)
+                    current_revision = current.revision if current else "missing"
+                    raise HabitLogRevisionConflictError(
+                        f"Expected revision {update_data.expected_revision}, current revision is {current_revision}"
+                    )
+
+                await session.commit()
+                await session.refresh(log_row)
+                habit_log = habit_log_db_to_pydantic(log_row)
+                await self._refresh_metric_facts_for_logs(user_id=user_id, logs=[log_row])
+                self._fire_habit_log_side_effects(
+                    habit_log,
+                    habit,
+                    user_id,
+                    revision=next_revision,
+                )
+                return habit_log
+            except (HabitLogNotFoundError, HabitLogRevisionConflictError, HabitLogUpdateValidationError):
+                raise
+            except SQLAlchemyError as exc:
+                await session.rollback()
+                raise Exception(f"Failed to update habit log: {str(exc)}") from exc
+
+    async def delete_habit_log(self, habit_id: str, log_id: str, user_id: str) -> None:
+        """Delete a single habit log owned by the user."""
+        async with get_db_session() as session:
+            try:
+                result = await session.execute(
+                    select(HabitLogDB)
+                    .join(HabitDB, HabitDB.id == HabitLogDB.habit_id)
+                    .where(
+                        HabitLogDB.id == log_id,
+                        HabitLogDB.habit_id == habit_id,
+                        HabitDB.user_id == user_id,
+                    )
+                )
+                log_row = result.scalar_one_or_none()
+                if not log_row:
+                    raise Exception("Habit log not found or not authorized")
+                session.delete(log_row)
+                await session.commit()
+            except SQLAlchemyError as e:
+                await session.rollback()
+                raise Exception(f"Failed to delete habit log: {str(e)}") from e
 
     async def upsert_habit_log_rollup(
         self,
@@ -800,6 +1178,15 @@ class HabitsService:
                         })
                         continue
 
+                    if is_computed_computer_time_habit(habit):
+                        validation_errors.append({
+                            "index": index,
+                            "success": False,
+                            "error": "Computer Time is calculated automatically from Ritual Watcher rollups.",
+                            "code": "computed_metric_read_only",
+                        })
+                        continue
+
                     # date is required for time-series analytics consistency.
                     if not item.get("date"):
                         validation_errors.append({
@@ -904,6 +1291,14 @@ class HabitsService:
                             'status': log_db.status,
                             'notes': log_db.notes,
                             'source': log_db.source or 'manual',
+                            'location_lat': log_db.location_lat,
+                            'location_lon': log_db.location_lon,
+                            'location_accuracy_m': log_db.location_accuracy_m,
+                            'location_source': log_db.location_source,
+                            'location_place_label': log_db.location_place_label,
+                            'location_confidence': log_db.location_confidence,
+                            'location_resolved_at': log_db.location_resolved_at,
+                            'location_signal_age_ms': log_db.location_signal_age_ms,
                             'completed_at': log_db.completed_at or log_db.date,
                             'metadata': log_db.log_metadata,
                             'integration_source': habit.integration_source,
@@ -912,25 +1307,13 @@ class HabitsService:
                         for _, log_db, habit in prepared_logs
                     ]
                     asyncio.create_task(
-                        self._safe_background_task(
-                            self.tinybird.ingest_habit_logs_batch(batch_payload),
-                            "tinybird_batch_sync",
-                        )
-                    )
-
-                # Typesense search indexing for each log
-                for _, log_db, habit in prepared_logs:
-                    async def _index_batch_log(log_row=log_db, h=habit):
-                        from services.search_service import search_service
-                        log = habit_log_db_to_pydantic(log_row)
-                        await search_service.index_habit_log(
-                            log.model_dump(), user_id,
-                            habit_name=h.name, category=h.category,
-                        )
-                    asyncio.create_task(
-                        self._safe_background_task(
-                            _index_batch_log(),
-                            f"typesense_index_batch_log:{log_db.id}",
+                        secondary_job_runner.enqueue(
+                            job_class="analytics",
+                            name="tinybird_batch_sync",
+                            dedupe_key=f"tinybird_batch_sync:{prepared_logs[0][1].id}:{len(prepared_logs)}",
+                            coro_factory=lambda payload=batch_payload: self.tinybird.ingest_habit_logs_batch(
+                                payload
+                            ),
                         )
                     )
 
@@ -1042,6 +1425,14 @@ class HabitsService:
             'status': habit_log.status,
             'notes': habit_log.notes,
             'source': habit_log.source or 'manual',
+            'location_lat': habit_log.location_lat,
+            'location_lon': habit_log.location_lon,
+            'location_accuracy_m': habit_log.location_accuracy_m,
+            'location_source': habit_log.location_source,
+            'location_place_label': habit_log.location_place_label,
+            'location_confidence': habit_log.location_confidence,
+            'location_resolved_at': habit_log.location_resolved_at,
+            'location_signal_age_ms': habit_log.location_signal_age_ms,
             'completed_at': habit_log.completed_at or habit_log.date,
             'metadata': habit_log.log_metadata,
             'integration_source': habit.integration_source,

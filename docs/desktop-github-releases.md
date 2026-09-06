@@ -61,8 +61,8 @@ Today, the default release path is CI-driven:
 4. Push a matching tag such as:
 
 ```bash
-git tag -a v0.1.53 -m "Ritual desktop v0.1.53"
-git push origin v0.1.53
+git tag -a v0.1.99 -m "Ritual desktop v0.1.99"
+git push origin v0.1.99
 ```
 
 5. Let [desktop-release.yml](/Users/nickgardner/Desktop/ritual-desktop-main/.github/workflows/desktop-release.yml) run on GitHub Actions. It now:
@@ -94,7 +94,7 @@ export APPLE_TEAM_ID="D657T2LVR2"
 
 npm run desktop:release:preflight
 npm run desktop:release:mac
-bash scripts/publish-desktop-release-assets.sh v0.1.53
+bash scripts/publish-apple-silicon-desktop-release-assets.sh v0.1.99
 node scripts/validate-updater-artifacts.mjs --latest https://github.com/NickGardner0/ritual-desktop-releases/releases/latest/download/latest.json --check-urls
 ```
 

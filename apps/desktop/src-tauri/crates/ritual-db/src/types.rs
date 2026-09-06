@@ -584,6 +584,22 @@ impl MigrationResult {
     }
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DeliveryOutboxKind {
+    Location,
+    Biome,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DeliveryOutboxItem {
+    pub event_id: String,
+    pub payload_json: String,
+    pub attempts: i64,
+    pub lease_owner: Option<String>,
+    pub lease_expires_at: Option<i64>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -608,5 +624,4 @@ mod tests {
         assert_eq!(SyncStatus::from_str("synced"), SyncStatus::Synced);
         assert_eq!(SyncStatus::from_str("FAILED"), SyncStatus::Failed);
     }
-
 }

@@ -11,11 +11,12 @@ from schemas.conversation_queue import (
     ConversationQueueCreate,
     ConversationQueueListResponse,
     ConversationQueueRunResponse,
+    ConversationQueueTransition,
     ConversationQueueUpdate,
 )
 from services.artifact_service import artifact_service
 from services.conversation_service import conversation_service
-from services.conversation_queue_service import conversation_queue_service
+from services.conversation_queue_service import ConversationQueueTransitionConflict, conversation_queue_service
 
 logger = logging.getLogger(__name__)
 
@@ -206,7 +207,13 @@ def create_conversations_router(
         payload: ConversationQueueUpdate,
         current_user=Depends(get_current_user),
     ):
-        item = await conversation_queue_service.update_item(current_user["id"], conversation_id, item_id, payload)
+        try:
+            item = await conversation_queue_service.update_item(current_user["id"], conversation_id, item_id, payload)
+        except ConversationQueueTransitionConflict as exc:
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "conversation_queue_transition_conflict", "current_item": exc.item.model_dump(mode="json")},
+            ) from exc
         if item is None:
             raise HTTPException(status_code=404, detail="Queued prompt not found")
         return ConversationQueueRunResponse(item=item, stale=False)
@@ -217,9 +224,78 @@ def create_conversations_router(
         item_id: str,
         current_user=Depends(get_current_user),
     ):
-        result = await conversation_queue_service.claim_next_item(current_user["id"], conversation_id, item_id)
+        try:
+            result = await conversation_queue_service.claim_next_item(current_user["id"], conversation_id, item_id)
+        except ConversationQueueTransitionConflict as exc:
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "conversation_queue_transition_conflict", "current_item": exc.item.model_dump(mode="json")},
+            ) from exc
         if result is None:
             raise HTTPException(status_code=404, detail="Queued prompt not found")
         return result
+
+    async def transition_queue_item(
+        *,
+        user_id: str,
+        conversation_id: str,
+        item_id: str,
+        status: str,
+        expected_statuses: set[str],
+        payload: ConversationQueueTransition,
+    ) -> ConversationQueueRunResponse:
+        try:
+            item = await conversation_queue_service.transition_item(
+                user_id,
+                conversation_id,
+                item_id,
+                expected_statuses=expected_statuses,
+                status=status,
+                error=payload.error,
+            )
+        except ConversationQueueTransitionConflict as exc:
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "conversation_queue_transition_conflict", "current_item": exc.item.model_dump(mode="json")},
+            ) from exc
+        if item is None:
+            raise HTTPException(status_code=404, detail="Queued prompt not found")
+        return ConversationQueueRunResponse(item=item, stale=False)
+
+    @router.post("/api/conversations/{conversation_id}/queue/{item_id}/complete", response_model=ConversationQueueRunResponse)
+    async def complete_conversation_queue_item(
+        conversation_id: str,
+        item_id: str,
+        payload: ConversationQueueTransition = ConversationQueueTransition(),
+        current_user=Depends(get_current_user),
+    ):
+        return await transition_queue_item(
+            user_id=current_user["id"], conversation_id=conversation_id, item_id=item_id,
+            status="completed", expected_statuses={"running"}, payload=payload,
+        )
+
+    @router.post("/api/conversations/{conversation_id}/queue/{item_id}/fail", response_model=ConversationQueueRunResponse)
+    async def fail_conversation_queue_item(
+        conversation_id: str,
+        item_id: str,
+        payload: ConversationQueueTransition,
+        current_user=Depends(get_current_user),
+    ):
+        return await transition_queue_item(
+            user_id=current_user["id"], conversation_id=conversation_id, item_id=item_id,
+            status="failed", expected_statuses={"running"}, payload=payload,
+        )
+
+    @router.post("/api/conversations/{conversation_id}/queue/{item_id}/cancel", response_model=ConversationQueueRunResponse)
+    async def cancel_conversation_queue_item(
+        conversation_id: str,
+        item_id: str,
+        payload: ConversationQueueTransition = ConversationQueueTransition(),
+        current_user=Depends(get_current_user),
+    ):
+        return await transition_queue_item(
+            user_id=current_user["id"], conversation_id=conversation_id, item_id=item_id,
+            status="canceled", expected_statuses={"pending", "running"}, payload=payload,
+        )
 
     return router

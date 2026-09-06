@@ -26,15 +26,28 @@
       "types": "./dist/tool-registry.d.ts",
       "import": "./dist/tool-registry.js"
     },
-    "./chat-turn-engine": {
-      "types": "./dist/chat-turn-engine.d.ts",
-      "import": "./dist/chat-turn-engine.js"
+    "./stream-response": {
+      "types": "./dist/stream-response.d.ts",
+      "import": "./dist/stream-response.js"
+    },
+    "./sidecar": {
+      "types": "./dist/sidecar.d.ts",
+      "import": "./dist/sidecar.js"
+    },
+    "./handle-chat-stream": {
+      "types": "./dist/handle-chat-stream.d.ts",
+      "import": "./dist/handle-chat-stream.js"
+    },
+    "./model-engine": {
+      "types": "./dist/model-engine/index.d.ts",
+      "import": "./dist/model-engine/index.js"
     }
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "npm run build && node --test tests/*.test.mjs",
+    "test": "npm run build && NODE_ENV=test RITUAL_ASSISTANT_TURN_STORE=memory node --test tests/*.test.mjs",
+    "sidecar": "npm run build && node dist/sidecar.js",
     "clean": "rm -rf dist"
   },
   "dependencies": {

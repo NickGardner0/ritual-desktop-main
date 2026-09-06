@@ -215,37 +215,6 @@ private func presentVoicePermissionAlert(
     }
 }
 
-@_cdecl("show_ritual_update_install_prompt")
-func show_ritual_update_install_prompt(_ versionPtr: UnsafePointer<CChar>?) -> Bool {
-    let version = versionPtr.map { String(cString: $0) }?
-        .trimmingCharacters(in: .whitespacesAndNewlines)
-    let displayVersion = version?.isEmpty == false ? version! : "the latest version"
-
-    var shouldInstall = false
-    let showPrompt = {
-        let alert = NSAlert()
-        alert.alertStyle = .informational
-        alert.messageText = "Install Ritual \(displayVersion)?"
-        alert.informativeText = "A desktop update is ready. Ritual will relaunch after installation."
-        alert.addButton(withTitle: "Install")
-        alert.addButton(withTitle: "Later")
-
-        if let appIcon = ritualAppIconImage() {
-            alert.icon = appIcon
-        }
-
-        shouldInstall = alert.runModal() == .alertFirstButtonReturn
-    }
-
-    if Thread.isMainThread {
-        showPrompt()
-    } else {
-        DispatchQueue.main.sync(execute: showPrompt)
-    }
-
-    return shouldInstall
-}
-
 @_cdecl("show_microphone_permission_dialog")
 func show_microphone_permission_dialog() -> Bool {
     guard hasUsageDescription(

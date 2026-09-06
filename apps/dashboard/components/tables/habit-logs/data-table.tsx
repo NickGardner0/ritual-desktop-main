@@ -6,7 +6,6 @@ import {
   useReactTable,
   getCoreRowModel,
   flexRender,
-  type ColumnDef,
 } from '@tanstack/react-table';
 import {
   DndContext,
@@ -20,679 +19,27 @@ import {
   arrayMove,
   SortableContext,
   horizontalListSortingStrategy,
-  useSortable,
 } from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Button } from '@/components/ui/button';
-import {
-  ArrowDown,
-  ArrowUp,
-  ChevronDown,
-  Check,
-  Info,
-} from 'lucide-react';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { ArrowUp, Info } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
+import type { HabitLog } from '@/components/habit-logs/types';
 import {
-  SelectCell,
-  DateCell,
-  TimeCell,
-  HabitCell,
-  ValueCell,
-  CategoryCell,
-  SourceCell,
-  NotesCell,
-  ActionsCell,
-} from './columns';
-import type { HabitLog, TableDensity } from '@/components/habit-logs/types';
-
-// ── Types ──────────────────────────────────────────────────
-
-interface DataTableProps {
-  logs: HabitLog[];
-  rowSelection: Record<string, boolean>;
-  onRowSelectionChange: (selection: Record<string, boolean>) => void;
-  columnVisibility: Record<string, boolean>;
-  sortColumn: string | null;
-  sortDirection: 'asc' | 'desc';
-  onSort: (column: string) => void;
-  hasFilters: boolean;
-  totals: {
-    count: number;
-    totalDuration: number;
-    totalAmount: number;
-    completedCount: number;
-    completionRate: number;
-  } | null;
-  isLoading: boolean;
-  availableSources: string[];
-  onQuickEdit: (
-    log: HabitLog,
-    updates: Partial<Pick<HabitLog, 'status' | 'date' | 'integration_source' | 'completed_at'>>,
-  ) => void;
-  updatingLogIds: Record<string, boolean>;
-  density: TableDensity;
-  onRowClick?: (log: HabitLog) => void;
-  onLoadMore?: () => void;
-  hasMore?: boolean;
-  isFetchingMore?: boolean;
-}
-
-type ColumnAlign = 'left' | 'center' | 'right';
-
-interface ColumnLayoutMeta {
-  sticky?: boolean;
-  stickyRight?: boolean;
-  align: ColumnAlign;
-  resizable: boolean;
-  sortable: boolean;
-  hideIndicator?: boolean;
-}
-
-interface HabitLogTableMeta {
-  density: TableDensity;
-  sourceOptions: string[];
-  onQuickEdit: DataTableProps['onQuickEdit'];
-  updatingLogIds: Record<string, boolean>;
-  sortColumn: string | null;
-  sortDirection: 'asc' | 'desc';
-  onSort: (column: string) => void;
-  allSelected: boolean;
-  someSelected: boolean;
-  toggleAllRows: (value: boolean) => void;
-  toggleRow: (id: string, value: boolean) => void;
-  handleShiftClickRange: (start: number, end: number) => void;
-  lastClickedIndex: number | null;
-  setLastClickedIndex: (index: number) => void;
-  setActiveRowIndex: (index: number) => void;
-  rowSelection: Record<string, boolean>;
-}
-
-// ── Constants ──────────────────────────────────────────────
-
-const COLUMN_RESIZE_STORAGE_KEY = 'ritual:logs:column-widths:v5';
-const COLUMN_ORDER_STORAGE_KEY = 'ritual:logs:column-order:v1';
-
-const DEFAULT_COLUMN_ORDER = ['select', 'date', 'time', 'habit', 'value', 'category', 'source', 'notes', 'actions'];
-const LEFT_STICKY_COLUMNS = ['select', 'date'];
-const PINNED_COLUMNS = new Set(['select', 'actions']);
-
-const COLUMN_LAYOUT: Record<string, ColumnLayoutMeta> = {
-  select: { sticky: true, align: 'center', resizable: false, sortable: false },
-  date: { sticky: true, align: 'left', resizable: true, sortable: true, hideIndicator: true },
-  time: { align: 'left', resizable: true, sortable: true, hideIndicator: true },
-  habit: { align: 'left', resizable: true, sortable: true },
-  value: { align: 'left', resizable: true, sortable: true },
-  category: { align: 'left', resizable: true, sortable: true },
-  source: { align: 'left', resizable: true, sortable: true },
-  notes: { align: 'left', resizable: false, sortable: false },
-  actions: { stickyRight: true, align: 'center', resizable: false, sortable: false },
-};
-
-const COLUMN_SIZES: Record<string, { size: number; minSize: number; maxSize: number }> = {
-  select: { size: 40, minSize: 40, maxSize: 40 },
-  date: { size: 110, minSize: 90, maxSize: 200 },
-  time: { size: 110, minSize: 80, maxSize: 200 },
-  habit: { size: 240, minSize: 140, maxSize: 500 },
-  value: { size: 160, minSize: 100, maxSize: 280 },
-  category: { size: 155, minSize: 100, maxSize: 300 },
-  source: { size: 140, minSize: 90, maxSize: 300 },
-  notes: { size: 195, minSize: 120, maxSize: 400 },
-  actions: { size: 72, minSize: 72, maxSize: 72 },
-};
-
-// ── TanStack Column Definitions ────────────────────────────
-
-const tableColumns: ColumnDef<HabitLog>[] = [
-  {
-    id: 'select',
-    ...COLUMN_SIZES.select,
-    enableResizing: false,
-    header: ({ table }) => {
-      const meta = table.options.meta as HabitLogTableMeta;
-      return (
-        <div className="flex items-center justify-center">
-          <Checkbox
-            checked={meta.allSelected || (meta.someSelected && 'indeterminate')}
-            onCheckedChange={meta.toggleAllRows}
-            className="rounded-none border-gray-300 data-[state=checked]:bg-gray-900 data-[state=checked]:border-gray-900"
-          />
-        </div>
-      );
-    },
-    cell: ({ row, table }) => {
-      const meta = table.options.meta as HabitLogTableMeta;
-      const log = row.original;
-      const isSelected = meta.rowSelection[log.id] || false;
-      return (
-        <SelectCell
-          checked={isSelected}
-          onChange={(value) => {
-            meta.toggleRow(log.id, value);
-            meta.setLastClickedIndex(row.index);
-            meta.setActiveRowIndex(row.index);
-          }}
-          onShiftClick={() => {
-            if (meta.lastClickedIndex !== null) {
-              meta.handleShiftClickRange(meta.lastClickedIndex, row.index);
-            }
-            meta.setLastClickedIndex(row.index);
-            meta.setActiveRowIndex(row.index);
-          }}
-        />
-      );
-    },
-  },
-  {
-    id: 'date',
-    accessorKey: 'date',
-    ...COLUMN_SIZES.date,
-    header: ({ table }) => {
-      const meta = table.options.meta as HabitLogTableMeta;
-      return (
-        <SortButton
-          column="date"
-          sortColumn={meta.sortColumn}
-          sortDirection={meta.sortDirection}
-          align="left"
-          onSort={meta.onSort}
-          hideIndicator
-        >
-          Date
-        </SortButton>
-      );
-    },
-    cell: ({ row, table }) => {
-      const meta = table.options.meta as HabitLogTableMeta;
-      const log = row.original;
-      const isEditable = log.editable !== false && Boolean(log.habit_id);
-      return (
-        isEditable ? (
-          <InlineDateEditor
-            date={log.date}
-            completedAt={log.completed_at}
-            integrationSource={log.integration_source}
-            metricType={log.metric_type}
-            timePrecision={log.time_precision}
-            density={meta.density}
-            isUpdating={Boolean(meta.updatingLogIds[log.id])}
-            onSave={(nextDate) => meta.onQuickEdit(log, { date: nextDate })}
-          />
-        ) : (
-          <DateCell
-            date={log.date}
-            completed_at={log.completed_at}
-            integration_source={log.integration_source}
-            metric_type={log.metric_type}
-            time_precision={log.time_precision}
-          />
-        )
-      );
-    },
-  },
-  {
-    id: 'time',
-    accessorKey: 'completed_at',
-    ...COLUMN_SIZES.time,
-    header: ({ table }) => {
-      const meta = table.options.meta as HabitLogTableMeta;
-      return (
-        <SortButton
-          column="time"
-          sortColumn={meta.sortColumn}
-          sortDirection={meta.sortDirection}
-          align="left"
-          onSort={meta.onSort}
-          hideIndicator
-        >
-          Time
-        </SortButton>
-      );
-    },
-    cell: ({ row }) => (
-      <TimeCell
-        date={row.original.date}
-        completed_at={row.original.completed_at}
-        integration_source={row.original.integration_source}
-        metric_type={row.original.metric_type}
-        time_precision={row.original.time_precision}
-      />
-    ),
-  },
-  {
-    id: 'habit',
-    accessorKey: 'habit_name',
-    ...COLUMN_SIZES.habit,
-    header: ({ table }) => {
-      const meta = table.options.meta as HabitLogTableMeta;
-      return (
-        <SortButton
-          column="habit"
-          sortColumn={meta.sortColumn}
-          sortDirection={meta.sortDirection}
-          align="left"
-          onSort={meta.onSort}
-        >
-          Name
-        </SortButton>
-      );
-    },
-    cell: ({ row }) => <HabitCell habitName={row.original.habit_name} icon={row.original.icon} />,
-  },
-  {
-    id: 'value',
-    ...COLUMN_SIZES.value,
-    header: ({ table }) => {
-      const meta = table.options.meta as HabitLogTableMeta;
-      return (
-        <SortButton
-          column="value"
-          sortColumn={meta.sortColumn}
-          sortDirection={meta.sortDirection}
-          align="left"
-          onSort={meta.onSort}
-        >
-          Value
-        </SortButton>
-      );
-    },
-    cell: ({ row }) => (
-      <ValueCell
-        duration={row.original.duration}
-        amount={row.original.amount}
-        unitType={row.original.unit_type}
-      />
-    ),
-  },
-  {
-    id: 'category',
-    accessorKey: 'category',
-    ...COLUMN_SIZES.category,
-    header: ({ table }) => {
-      const meta = table.options.meta as HabitLogTableMeta;
-      return (
-        <SortButton
-          column="category"
-          sortColumn={meta.sortColumn}
-          sortDirection={meta.sortDirection}
-          align="left"
-          onSort={meta.onSort}
-        >
-          Category
-        </SortButton>
-      );
-    },
-    cell: ({ row }) => <CategoryCell category={row.original.category} />,
-  },
-  {
-    id: 'source',
-    accessorKey: 'integration_source',
-    ...COLUMN_SIZES.source,
-    header: ({ table }) => {
-      const meta = table.options.meta as HabitLogTableMeta;
-      return (
-        <SortButton
-          column="source"
-          sortColumn={meta.sortColumn}
-          sortDirection={meta.sortDirection}
-          align="left"
-          onSort={meta.onSort}
-        >
-          Source
-        </SortButton>
-      );
-    },
-    cell: ({ row, table }) => {
-      const meta = table.options.meta as HabitLogTableMeta;
-      const log = row.original;
-      const isEditable = log.editable !== false && Boolean(log.habit_id);
-      return (
-        isEditable ? (
-          <InlineSourceEditor
-            source={log.integration_source}
-            habitName={log.habit_name}
-            sourceOptions={meta.sourceOptions}
-            density={meta.density}
-            isUpdating={Boolean(meta.updatingLogIds[log.id])}
-            onSelect={(nextSource) => meta.onQuickEdit(log, { integration_source: nextSource })}
-          />
-        ) : (
-          <SourceCell source={log.integration_source} habitName={log.habit_name} />
-        )
-      );
-    },
-  },
-  {
-    id: 'notes',
-    accessorKey: 'notes',
-    ...COLUMN_SIZES.notes,
-    header: () => (
-      <span className="block truncate text-[14px] font-normal tracking-normal text-neutral-700">
-        Notes
-      </span>
-    ),
-    cell: ({ row }) => <NotesCell notes={row.original.notes} />,
-  },
-  {
-    id: 'actions',
-    ...COLUMN_SIZES.actions,
-    enableResizing: false,
-    header: () => (
-      <span className="block truncate text-[14px] font-normal tracking-normal text-neutral-700">
-        Actions
-      </span>
-    ),
-    cell: ({ row }) => <ActionsCell log={row.original} />,
-  },
-];
-
-// ── localStorage Helpers ───────────────────────────────────
-
-function readStoredColumnWidths(): Record<string, number> {
-  if (typeof window === 'undefined') return {};
-
-  try {
-    const raw = localStorage.getItem(COLUMN_RESIZE_STORAGE_KEY);
-    if (!raw) return {};
-
-    const parsed = JSON.parse(raw) as Record<string, number>;
-    const next: Record<string, number> = {};
-
-    for (const [key, value] of Object.entries(parsed)) {
-      const sizes = COLUMN_SIZES[key];
-      if (!sizes || !Number.isFinite(value)) continue;
-      const clamped = Math.max(sizes.minSize, Math.min(sizes.maxSize, value));
-      if (clamped !== sizes.size) {
-        next[key] = clamped;
-      }
-    }
-
-    return next;
-  } catch {
-    return {};
-  }
-}
-
-function readStoredColumnOrder(): string[] | null {
-  if (typeof window === 'undefined') return null;
-  try {
-    const raw = localStorage.getItem(COLUMN_ORDER_STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as string[];
-    if (!Array.isArray(parsed) || parsed.length === 0) return null;
-    // Ensure all columns are included (safety net for new columns)
-    const inOrder = new Set(parsed);
-    const result = [...parsed];
-    for (const id of DEFAULT_COLUMN_ORDER) {
-      if (!inOrder.has(id)) result.push(id);
-    }
-    return result;
-  } catch {
-    return null;
-  }
-}
-
-// ── Helper Components ──────────────────────────────────────
-
-function SortableHeaderCell({
-  columnId,
-  children,
-  className,
-  style,
-}: {
-  columnId: string;
-  children: React.ReactNode;
-  className?: string;
-  style?: React.CSSProperties;
-}) {
-  const isPinned = PINNED_COLUMNS.has(columnId);
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({
-    id: columnId,
-    disabled: isPinned,
-  });
-
-  const dragStyle: React.CSSProperties = {
-    ...style,
-    transform: CSS.Translate.toString(transform),
-    transition,
-    opacity: isDragging ? 0.6 : undefined,
-    zIndex: isDragging ? 40 : (style?.zIndex as number | undefined),
-    cursor: isPinned ? 'default' : 'grab',
-  };
-
-  return (
-    <div
-      ref={setNodeRef}
-      role="columnheader"
-      className={className}
-      style={dragStyle}
-      {...(isPinned ? {} : { ...attributes, ...listeners })}
-    >
-      {children}
-    </div>
-  );
-}
-
-function SortButton({
-  column,
-  sortColumn,
-  sortDirection,
-  align,
-  onSort,
-  hideIndicator = false,
-  children,
-}: {
-  column: string;
-  sortColumn: string | null;
-  sortDirection: 'asc' | 'desc';
-  align: ColumnAlign;
-  onSort: (column: string) => void;
-  hideIndicator?: boolean;
-  children: React.ReactNode;
-}) {
-  const isActive = sortColumn === column;
-
-  return (
-    <Button
-      variant="ghost"
-      className={cn(
-        'flex h-auto w-full items-center gap-1 p-0 text-[14px] font-normal tracking-normal text-neutral-700 hover:bg-transparent hover:text-neutral-900',
-        align === 'right' ? 'justify-end' : align === 'center' ? 'justify-center' : 'justify-start',
-      )}
-      onClick={() => onSort(column)}
-    >
-      <span className="truncate">{children}</span>
-      {isActive && !hideIndicator ? (
-        sortDirection === 'asc' ? (
-          <ArrowUp className="w-3 h-3 text-gray-500" />
-        ) : (
-          <ArrowDown className="w-3 h-3 text-gray-500" />
-        )
-      ) : null}
-    </Button>
-  );
-}
-
-function InlineDateEditor({
-  date,
-  completedAt,
-  integrationSource,
-  metricType,
-  timePrecision,
-  density,
-  isUpdating,
-  onSave,
-}: {
-  date: string;
-  completedAt?: string;
-  integrationSource?: string;
-  metricType?: string;
-  timePrecision?: 'exact' | 'day';
-  density: TableDensity;
-  isUpdating: boolean;
-  onSave: (nextDate: string) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [draftDate, setDraftDate] = useState(date);
-  const handleOpenChange = useCallback((nextOpen: boolean) => {
-    setOpen(nextOpen);
-    if (!nextOpen) {
-      setDraftDate(date);
-    }
-  }, [date]);
-
-  return (
-    <Popover open={open} onOpenChange={handleOpenChange}>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          onClick={(event) => event.stopPropagation()}
-          className={cn(
-            'group inline-flex w-full min-w-0 items-center justify-between gap-2 text-left text-sm text-gray-700 hover:text-gray-900',
-            density === 'compact' ? 'h-6' : 'h-7',
-          )}
-          disabled={isUpdating}
-        >
-          <span className="min-w-0 truncate block">
-            <DateCell
-              date={date}
-              completed_at={completedAt}
-              integration_source={integrationSource}
-              metric_type={metricType}
-              time_precision={timePrecision}
-            />
-          </span>
-          {isUpdating ? (
-            <BrailleSpinner className="text-sm text-gray-500" />
-          ) : (
-            <ChevronDown
-              className={cn(
-                'w-3.5 h-3.5 shrink-0 text-gray-400 transition-opacity',
-                open ? 'opacity-70' : 'opacity-0 group-hover:opacity-70',
-              )}
-            />
-          )}
-        </button>
-      </PopoverTrigger>
-      <PopoverContent
-        align="start"
-        className="w-[220px] rounded-sm border border-black/10 bg-white p-2 shadow-[0_18px_30px_-24px_rgba(15,23,42,0.35)]"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div className="space-y-2">
-          <input
-            type="date"
-            value={draftDate}
-            onChange={(event) => setDraftDate(event.target.value)}
-            className="h-8 w-full rounded-sm border border-black/10 bg-white px-3 text-sm outline-none"
-          />
-          <div className="flex items-center justify-end gap-1">
-            <button
-              type="button"
-              onClick={() => setOpen(false)}
-              className="h-7 rounded-sm border border-black/10 px-3 text-xs text-neutral-700 hover:bg-neutral-50"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                if (!draftDate || draftDate === date) {
-                  setOpen(false);
-                  return;
-                }
-                onSave(draftDate);
-                setOpen(false);
-              }}
-              disabled={isUpdating || !draftDate}
-              className="h-7 rounded-sm border border-neutral-900 bg-neutral-900 px-3 text-xs text-white disabled:opacity-50"
-            >
-              Save
-            </button>
-          </div>
-        </div>
-      </PopoverContent>
-    </Popover>
-  );
-}
-
-function InlineSourceEditor({
-  source,
-  habitName,
-  sourceOptions,
-  density,
-  isUpdating,
-  onSelect,
-}: {
-  source?: string;
-  habitName?: string;
-  sourceOptions: string[];
-  density: TableDensity;
-  isUpdating: boolean;
-  onSelect: (nextSource: string) => void;
-}) {
-  const currentSource = source || 'manual';
-
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          onClick={(event) => event.stopPropagation()}
-          className={cn(
-            'group inline-flex w-full min-w-0 items-center justify-between gap-2 text-left text-gray-700 hover:text-gray-900',
-            density === 'compact' ? 'h-6' : 'h-7',
-          )}
-          disabled={isUpdating}
-        >
-          <span className="min-w-0">
-            <SourceCell source={currentSource} habitName={habitName} />
-          </span>
-          {isUpdating ? (
-            <BrailleSpinner className="text-sm text-gray-500" />
-          ) : (
-            <ChevronDown className="w-3.5 h-3.5 shrink-0 text-gray-400 opacity-0 transition-opacity group-hover:opacity-70" />
-          )}
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="start"
-        className="w-[190px] rounded-sm border border-black/10 bg-white p-1 shadow-[0_18px_30px_-24px_rgba(15,23,42,0.35)]"
-      >
-        {sourceOptions.map((option) => (
-          <DropdownMenuItem
-            key={option}
-            className="rounded-sm"
-            onClick={() => {
-              if (option !== currentSource) {
-                onSelect(option);
-              }
-            }}
-          >
-            <span className="flex-1 capitalize text-sm text-gray-900">{option}</span>
-            {option === currentSource && <Check className="w-3.5 h-3.5 text-gray-700" />}
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
+  COLUMN_LAYOUT,
+  COLUMN_ORDER_STORAGE_KEY,
+  COLUMN_RESIZE_STORAGE_KEY,
+  COLUMN_SIZES,
+  DEFAULT_COLUMN_ORDER,
+  LEFT_STICKY_COLUMNS,
+  PINNED_COLUMNS,
+  type ColumnAlign,
+  type DataTableProps,
+  type HabitLogTableMeta,
+} from './data-table/constants';
+import { tableColumns } from './data-table/columns';
+import { readStoredColumnOrder, readStoredColumnWidths } from './data-table/storage';
+import { SortableHeaderCell } from './data-table/header-cells';
 
 // ── Main Component ─────────────────────────────────────────
 
@@ -718,7 +65,6 @@ export function HabitLogsDataTable({
 }: DataTableProps) {
   const [lastClickedIndex, setLastClickedIndex] = useState<number | null>(null);
   const [activeRowIndex, setActiveRowIndex] = useState<number>(-1);
-  const [hoveredRowIndex, setHoveredRowIndex] = useState<number | null>(null);
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>(readStoredColumnWidths);
   const [columnOrder, setColumnOrder] = useState<string[]>(() => {
     const stored = readStoredColumnOrder();
@@ -762,7 +108,7 @@ export function HabitLogsDataTable({
       clearTimeout(timer);
       document.removeEventListener('focusin', handleFocusIn);
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   const rowHeight = density === 'compact' ? 34 : 38;
 
@@ -1137,7 +483,6 @@ export function HabitLogsDataTable({
         tabIndex={0}
         onKeyDown={handleKeyboardSelection}
         onMouseDown={() => containerRef.current?.focus()}
-        onMouseLeave={() => setHoveredRowIndex(null)}
         ref={containerRef}
       >
         {isLoading && logs.length === 0 ? (
@@ -1252,11 +597,10 @@ export function HabitLogsDataTable({
                 const log = row.original;
                 const isSelected = rowSelection[log.id] || false;
                 const isActiveRow = virtualRow.index === activeRowIndex;
-                const isHoveredRow = hoveredRowIndex === virtualRow.index;
 
                 const rowBgClass = isSelected
                   ? 'bg-neutral-50'
-                  : isHoveredRow || isActiveRow
+                  : isActiveRow
                     ? 'bg-[#f7f7f6]'
                     : 'bg-white';
 
@@ -1265,8 +609,10 @@ export function HabitLogsDataTable({
                     key={log.id}
                     role="row"
                     data-index={virtualRow.index}
+                    data-selected={isSelected ? 'true' : undefined}
+                    data-active={isActiveRow ? 'true' : undefined}
                     className={cn(
-                      'group cursor-default select-text',
+                      'ritual-habit-log-row group cursor-default select-text',
                       'absolute left-0 w-full min-w-full flex items-center',
                       rowBgClass,
                     )}
@@ -1289,7 +635,6 @@ export function HabitLogsDataTable({
                         onRowClick(log);
                       }
                     }}
-                    onMouseEnter={() => setHoveredRowIndex(virtualRow.index)}
                   >
                     {row.getVisibleCells().map((cell) => {
                       const columnId = cell.column.id;
@@ -1330,7 +675,7 @@ export function HabitLogsDataTable({
                       );
                     })}
                     {/* Filler to extend row border to full width */}
-                    <div className={cn('flex-1 h-full border-b border-border', rowBgClass)} />
+                    <div className={cn('ritual-habit-log-row-fill flex-1 h-full border-b border-border', rowBgClass)} />
                   </div>
                 );
               })}

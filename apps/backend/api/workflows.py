@@ -9,6 +9,7 @@ from typing import Any, Callable, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from schemas.workflows import (
+    WorkflowDefinitionCreate,
     WorkflowDefinitionListResponse,
     WorkflowDefinitionRead,
     WorkflowDefinitionUpdate,
@@ -32,6 +33,20 @@ def create_workflows_router(*, get_current_user: Callable[..., Any]) -> APIRoute
             current_user["id"],
             timezone_name=current_user.get("timezone"),
         )
+
+    @router.post("/definitions", response_model=WorkflowDefinitionRead)
+    async def create_workflow_definition(
+        payload: WorkflowDefinitionCreate,
+        current_user=Depends(get_current_user),
+    ):
+        try:
+            return await workflow_service.create_definition(
+                user_id=current_user["id"],
+                timezone_name=current_user.get("timezone"),
+                payload=payload,
+            )
+        except WorkflowValidationError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @router.patch("/definitions/{definition_id}", response_model=WorkflowDefinitionRead)
     async def patch_workflow_definition(

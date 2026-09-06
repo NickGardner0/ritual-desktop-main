@@ -13,7 +13,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+} from '@ritual/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import {
   getCategoryFillClass,
@@ -24,6 +24,10 @@ import {
   formatHabitLogDisplayDate,
   formatHabitLogDisplayTime,
 } from '@/lib/habit-log-time';
+import { EntityLinkPicker } from '@/components/entities/entity-link-picker';
+import { EntityRelatedPanel } from '@/components/entities/entity-related-panel';
+import { EntityNoteText } from '@/components/entities/entity-note-text';
+import { entityProtocolEnabled } from '@/lib/entities/feature-flag';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
 import type { HabitLog } from '@/components/habit-logs/types';
 
@@ -189,11 +193,10 @@ export function LogDetailPanel({
                     )}
                   </button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-[160px] rounded-sm border border-black/10 bg-white p-1">
+                <DropdownMenuContent align="end" className="w-[160px]">
                   {STATUS_OPTIONS.map((option) => (
                     <DropdownMenuItem
                       key={option.value}
-                      className="rounded-sm"
                       onClick={() => {
                         if (option.value !== log.status) {
                           onQuickEdit(log, { status: option.value });
@@ -239,11 +242,10 @@ export function LogDetailPanel({
                     )}
                   </button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-[190px] rounded-sm border border-black/10 bg-white p-1">
+                <DropdownMenuContent align="end" className="w-[190px]">
                   {availableSources.map((option) => (
                     <DropdownMenuItem
                       key={option}
-                      className="rounded-sm"
                       onClick={() => {
                         if (option !== (log.integration_source || 'manual')) {
                           onQuickEdit(log, { integration_source: option });
@@ -269,7 +271,7 @@ export function LogDetailPanel({
             <DetailRow label="Notes">
               <div className="flex items-start justify-end gap-2">
                 <p className="text-[14px] text-neutral-700 text-right whitespace-pre-wrap break-words max-w-[240px]">
-                  {log.notes}
+                  <EntityNoteText text={log.notes} />
                 </p>
                 <button
                   type="button"
@@ -307,6 +309,12 @@ export function LogDetailPanel({
             </DetailRow>
           )}
         </div>
+        {entityProtocolEnabled() && log.id ? (
+          <div className="mt-5 space-y-3">
+            <EntityRelatedPanel entityRef={{ type: 'habit_log', id: log.id }} />
+            <EntityLinkPicker source={{ type: 'habit_log', id: log.id }} />
+          </div>
+        ) : null}
       </SheetContent>
     </Sheet>
   );

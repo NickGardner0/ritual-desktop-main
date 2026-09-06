@@ -43,7 +43,7 @@ class ChunkErrorBoundary extends Component<Props, State> {
         : '';
 
       return (
-        <div className="min-h-screen bg-white flex items-center justify-center">
+        <div className="min-h-screen bg-white glass-opaque-screen flex items-center justify-center">
           <div className="text-center p-8">
             <div className="w-16 h-16 mx-auto mb-4 text-gray-400">
               <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">

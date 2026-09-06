@@ -12,10 +12,7 @@ static LOG_GUARD: OnceCell<WorkerGuard> = OnceCell::new();
 static SENTRY_GUARD: OnceCell<sentry::ClientInitGuard> = OnceCell::new();
 
 fn desktop_log_dir() -> PathBuf {
-    dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".ritual")
-        .join("logs")
+    crate::app_paths::data_dir().join("logs")
 }
 
 pub fn init_desktop_observability() -> Result<(), String> {

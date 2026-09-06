@@ -1,6 +1,6 @@
-import type OpenAI from 'openai';
-
 import { tools as toolSchemas } from './tools.js';
+import type { ToolSideEffect } from './assistant-turn.js';
+import type { ModelEngineTool } from './model-engine/types.js';
 
 export const toolNames = [
   'getHabitStats',
@@ -17,41 +17,37 @@ export const toolNames = [
   'getDailyBiometrics',
   'getScreenTimeSummary',
   'getCalendarEvents',
+  'searchCalendar',
+  'findCalendarAvailability',
+  'proposeCalendarChanges',
+  'planMyDay',
   'getStreaks',
   'logHabit',
   'createHabit',
-  'getSmsPreferences',
-  'updateSmsPreferences',
 ] as const;
 
 export type ToolName = (typeof toolNames)[number];
-export type ChatToolSchema = OpenAI.Chat.Completions.ChatCompletionTool;
-export type ChatToolChannel = 'dashboard' | 'sms';
+export type ChatToolSchema = ModelEngineTool;
+export type ChatToolChannel = 'dashboard';
 export type ChatToolOwner =
   | 'habits'
   | 'overviews'
   | 'computer-activity'
   | 'biometrics'
   | 'screen-time'
-  | 'calendar'
-  | 'sms-preferences';
+  | 'calendar';
 
 export interface RegisteredTool {
   name: ToolName;
   schema: ChatToolSchema;
   channels: readonly ChatToolChannel[];
   owner: ChatToolOwner;
+  sideEffect: ToolSideEffect;
 }
 
-const dashboardOnlyTools = new Set<ToolName>([
-  'getWeeklyOverview',
-  'getDailyOverview',
-  'getMonthlyOverview',
-  'getComputerTimeSpentBreakdown',
-  'getActivitySummary',
-  'getDailyBiometrics',
-  'getScreenTimeSummary',
-  'getCalendarEvents',
+const mutatingTools = new Set<ToolName>([
+  'logHabit',
+  'createHabit',
 ]);
 
 const toolOwners: Record<ToolName, ChatToolOwner> = {
@@ -69,11 +65,13 @@ const toolOwners: Record<ToolName, ChatToolOwner> = {
   getDailyBiometrics: 'biometrics',
   getScreenTimeSummary: 'screen-time',
   getCalendarEvents: 'calendar',
+  searchCalendar: 'calendar',
+  findCalendarAvailability: 'calendar',
+  proposeCalendarChanges: 'calendar',
+  planMyDay: 'calendar',
   getStreaks: 'habits',
   logHabit: 'habits',
   createHabit: 'habits',
-  getSmsPreferences: 'sms-preferences',
-  updateSmsPreferences: 'sms-preferences',
 };
 
 function toToolName(name: string): ToolName | null {
@@ -93,7 +91,8 @@ export const toolRegistry: ReadonlyMap<ToolName, RegisteredTool> = new Map(
         name,
         schema,
         owner: toolOwners[name],
-        channels: dashboardOnlyTools.has(name) ? ['dashboard'] : ['dashboard', 'sms'],
+        channels: ['dashboard'],
+        sideEffect: mutatingTools.has(name) ? 'mutating' : 'read_only',
       },
     ];
   }),
@@ -117,6 +116,12 @@ export function getToolsForChannel(channel: ChatToolChannel): ChatToolSchema[] {
   return Array.from(toolRegistry.values())
     .filter((entry) => entry.channels.includes(channel))
     .map((entry) => entry.schema);
+}
+
+export function getToolSideEffect(name: string): ToolSideEffect {
+  const toolName = toToolName(name);
+  if (!toolName) return 'mutating';
+  return toolRegistry.get(toolName)?.sideEffect ?? 'mutating';
 }
 
 export function getToolOwner(name: ToolName): ChatToolOwner {
@@ -163,6 +168,9 @@ export function validateToolRegistry(): string[] {
     }
     if (!entry?.channels.length) {
       errors.push(`ToolName has no channel availability: ${name}`);
+    }
+    if (entry?.sideEffect !== 'read_only' && entry?.sideEffect !== 'mutating') {
+      errors.push(`ToolName has no side-effect class: ${name}`);
     }
   }
 

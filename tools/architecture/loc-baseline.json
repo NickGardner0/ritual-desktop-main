@@ -1,0 +1,145 @@
+{
+  "schemaVersion": 1,
+  "methodVersion": 1,
+  "tokeiVersion": "14.0.0",
+  "repository": {
+    "branchAtMeasurement": "codex/release-0.1.1-prep",
+    "headAtMeasurement": "3204c747196b5e86561dd84dcac2dbd04c58a28d"
+  },
+  "sourceDigest": "8477d9be4888fb6842065fcacf0317f012959018481c7d68694fa036f07d69db",
+  "buckets": [
+    {
+      "id": "dashboard",
+      "label": "Dashboard production",
+      "files": 557,
+      "code": 88074,
+      "languages": {
+        "CSS": {
+          "files": 6,
+          "code": 2218
+        },
+        "JavaScript": {
+          "files": 14,
+          "code": 964
+        },
+        "TSX": {
+          "files": 290,
+          "code": 48858
+        },
+        "TypeScript": {
+          "files": 247,
+          "code": 36034
+        }
+      }
+    },
+    {
+      "id": "shared_packages",
+      "label": "Shared packages",
+      "files": 94,
+      "code": 11026,
+      "languages": {
+        "CSS": {
+          "files": 1,
+          "code": 181
+        },
+        "TSX": {
+          "files": 13,
+          "code": 957
+        },
+        "TypeScript": {
+          "files": 80,
+          "code": 9888
+        }
+      }
+    },
+    {
+      "id": "fastapi",
+      "label": "FastAPI application",
+      "files": 230,
+      "code": 58469,
+      "languages": {
+        "Python": {
+          "files": 230,
+          "code": 58469
+        }
+      }
+    },
+    {
+      "id": "desktop_rust",
+      "label": "Rust desktop, watcher, and ritual-db",
+      "files": 92,
+      "code": 40444,
+      "languages": {
+        "Rust": {
+          "files": 92,
+          "code": 40444
+        }
+      }
+    },
+    {
+      "id": "desktop_shell",
+      "label": "Desktop hosted-shell bootstrap",
+      "files": 4,
+      "code": 299,
+      "languages": {
+        "CSS": {
+          "files": 1,
+          "code": 108
+        },
+        "JavaScript": {
+          "files": 1,
+          "code": 15
+        },
+        "JSX": {
+          "files": 2,
+          "code": 176
+        }
+      }
+    },
+    {
+      "id": "desktop_ui",
+      "label": "Desktop local Vite SPA",
+      "files": 26,
+      "code": 1300,
+      "languages": {
+        "TSX": {
+          "files": 12,
+          "code": 1053
+        },
+        "TypeScript": {
+          "files": 14,
+          "code": 247
+        }
+      }
+    },
+    {
+      "id": "browser_extension",
+      "label": "Browser extension",
+      "files": 4,
+      "code": 1002,
+      "languages": {
+        "HTML": {
+          "files": 1,
+          "code": 55
+        },
+        "JavaScript": {
+          "files": 3,
+          "code": 947
+        }
+      }
+    },
+    {
+      "id": "tinybird",
+      "label": "Tinybird authored DSL",
+      "files": 24,
+      "code": 2048,
+      "languages": {
+        "Tinybird": {
+          "files": 24,
+          "code": 2048
+        }
+      }
+    }
+  ],
+  "total": 202662
+}

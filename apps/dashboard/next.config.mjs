@@ -9,10 +9,16 @@ const withBundleAnalyzer = bundleAnalyzer({
 const configDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(configDir, '../..');
 
-const corsAllowOrigin =
-  process.env.CORS_ALLOW_ORIGIN ||
-  process.env.NEXT_PUBLIC_APP_ORIGIN ||
-  'tauri://localhost';
+const corsAllowOrigin = (() => {
+  const raw =
+    process.env.CORS_ALLOW_ORIGIN ||
+    process.env.NEXT_PUBLIC_APP_ORIGIN ||
+    'https://tauri.localhost';
+  if (raw === 'tauri://localhost' || raw === 'http://tauri.localhost') {
+    return 'https://tauri.localhost';
+  }
+  return raw;
+})();
 
 const primarySentryProject =
   process.env.SENTRY_SOURCEMAP_PROJECT ||
@@ -61,7 +67,7 @@ const nextConfig = {
     ],
   },
 
-  transpilePackages: ['@ritual/chat-runtime'],
+transpilePackages: ['@ritual/agent', '@ritual/chat-runtime', '@ritual/shared-contracts'],
 
   serverExternalPackages: ['pino'],
 
@@ -84,6 +90,18 @@ const nextConfig = {
         repoRoot,
         'packages/chat-runtime/dist/weekly-overview-utils.js',
       ),
+      '@ritual/chat-runtime/stream-response': path.resolve(
+        repoRoot,
+        'packages/chat-runtime/dist/stream-response.js',
+      ),
+      '@ritual/agent$': path.resolve(
+        repoRoot,
+        'packages/agent/dist/index.js',
+      ),
+      '@ritual/shared-contracts$': path.resolve(
+        repoRoot,
+        'packages/shared-contracts/dist/index.js',
+      ),
     };
 
     return config;
@@ -101,7 +119,7 @@ const nextConfig = {
           },
           {
             key: 'Access-Control-Allow-Methods',
-            value: 'GET, POST, PUT, DELETE, OPTIONS',
+            value: 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
           },
           {
             key: 'Access-Control-Allow-Headers',

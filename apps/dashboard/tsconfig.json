@@ -28,11 +28,23 @@
       "@/*": [
         "./*"
       ],
+      "@ritual/ui": [
+        "../../packages/ui/src/index.ts"
+      ],
+      "@ritual/ui/cn": [
+        "../../packages/ui/src/cn.ts"
+      ],
       "@ritual/ui/*": [
-        "../../packages/ui/src/*"
+        "../../packages/ui/src/components/*"
       ],
       "@ritual/shared-contracts/*": [
         "../../packages/shared-contracts/src/*"
+      ],
+      "@ritual/chat-runtime/weekly-overview-utils": [
+        "../../packages/chat-runtime/src/weekly-overview-utils.ts"
+      ],
+      "@ritual/chat-runtime/stream-response": [
+        "../../packages/chat-runtime/src/stream-response.ts"
       ]
     }
   },
@@ -41,10 +53,11 @@
     "**/*.ts",
     "**/*.tsx",
     ".next/types/**/*.ts",
-    "trigger.config.ts",
     ".next/dev/types/**/*.ts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    ".next/types",
+    ".next/dev/types"
   ]
 }

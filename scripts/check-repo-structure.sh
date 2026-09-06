@@ -8,6 +8,7 @@ required_dirs=(
   "apps/dashboard"
   "apps/backend"
   "apps/desktop"
+  "apps/desktop-ui"
   "apps/browser-extension"
   "apps/ios-companion"
   "apps/tinybird"

@@ -1,33 +1,28 @@
 /**
  * useComputerActivity Hook
- * 
- * Fetches and derives computer activity data with backend/Turso-first
- * aggregated reads and local Tauri raw-event reads as desktop fallback.
- * iPhone Screen Time remains a separate aggregate source and should not be
- * merged with watcher desktop activity implicitly.
- * Implements caching and optimized loading for different time ranges.
+ *
+ * Desktop raw events come from local activity.db via Tauri IPC.
+ * Web reads the hosted watcher API. Desktop never silently falls through
+ * to cloud HTTP when local IPC fails.
  */
 
 'use client'
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useCallback, useMemo } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { isTauri } from '@/lib/tauri-utils'
+import { useAuth, useUser } from '@clerk/nextjs'
+import { isDesktopRuntime } from '@/lib/desktop-capabilities'
 import {
   ActivityBreakdownSource,
   ActivityBreakdownViewModel,
   ActivityEvent,
+  ComputerActivityReadSource,
   TimeRangePreset,
-  SessionSegment,
-  DrillDownData,
 } from '@/lib/computerActivity/contracts'
 import {
-  eventsToSegments,
-  mergeAdjacentSegments,
-  computeMicroMetrics,
+  calculateUniqueActiveTime,
   topApps,
   topDomains,
-  buildAttentionHeader,
   startOfDayLocal,
   endOfDayLocal,
   deduplicateEvents,
@@ -35,9 +30,9 @@ import {
 import {
   invokeDetailedActivityWithInitRetry,
 } from './tauri-activity'
-import { getAggregatedComputerStats } from './client'
+import { getAggregatedComputerStats } from './api'
 import { QUERY_POLICY } from '@/lib/query-policies'
-import { getReadConsistencyHeaders } from '@/lib/read-consistency'
+import { apiOperationWithAuth } from '@/lib/api/client'
 
 // ============================================================
 // Time range helpers
@@ -81,49 +76,31 @@ interface AggregatedComputerStats {
   daily: any[]
   apps: any[]
   domains: any[]
+  source?: string
+  read_source?: ComputerActivityReadSource
 }
 
-async function fetchScreenTimeAggregatedStats(startTs: number, endTs: number): Promise<AggregatedComputerStats | null> {
+async function fetchScreenTimeAggregatedStats(
+  getToken: (opts?: { skipCache?: boolean }) => Promise<string | null>,
+  userId: string | undefined,
+  startTs: number,
+  endTs: number,
+): Promise<AggregatedComputerStats | null> {
   try {
     const startDate = toLocalDateString(startTs)
     const endDate = toLocalDateString(endTs)
-
-    const [summaryRes, appsRes, domainsRes] = await Promise.all([
-      fetch(`/api/screen-time/stats/summary?start_date=${startDate}&end_date=${endDate}`, {
-        cache: 'no-store',
-        headers: {
-          ...getReadConsistencyHeaders(),
-        },
-      }),
-      fetch(`/api/screen-time/stats/top-apps?start_date=${startDate}&end_date=${endDate}&limit=10`, {
-        headers: {
-          ...getReadConsistencyHeaders(),
-        },
-      }),
-      fetch(`/api/screen-time/stats/top-domains?start_date=${startDate}&end_date=${endDate}&limit=10`, {
-        headers: {
-          ...getReadConsistencyHeaders(),
-        },
-      }),
-    ])
-
-    if (!summaryRes.ok || !appsRes.ok || !domainsRes.ok) {
-      return null
-    }
-
+    const query = { start_date: startDate, end_date: endDate }
     const [summaryPayload, appsPayload, domainsPayload] = await Promise.all([
-      summaryRes.json(),
-      appsRes.json(),
-      domainsRes.json(),
+      apiOperationWithAuth('get_screen_time_summary_api_screen_time_stats_summary_get', getToken, { query }, userId),
+      apiOperationWithAuth('get_screen_time_top_apps_api_screen_time_stats_top_apps_get', getToken, { query: { ...query, limit: 10 } }, userId),
+      apiOperationWithAuth('get_screen_time_top_domains_api_screen_time_stats_top_domains_get', getToken, { query: { ...query, limit: 10 } }, userId),
     ])
-
     const summary = summaryPayload?.data || {}
-
     return {
       summary,
-      daily: Array.isArray(summary.daily) ? summary.daily : [],
-      apps: appsPayload?.data || [],
-      domains: domainsPayload?.data || [],
+      daily: Array.isArray((summary as { daily?: unknown }).daily) ? (summary as { daily: unknown[] }).daily : [],
+      apps: (appsPayload as { data?: unknown[] } | null)?.data || [],
+      domains: (domainsPayload as { data?: unknown[] } | null)?.data || [],
     }
   } catch (error) {
     console.error('Failed to fetch aggregated screen time stats:', error)
@@ -154,54 +131,44 @@ export const computerActivityKeys = {
   ) => [...computerActivityKeys.all, 'events', source, rangeKey, limit, skipEventFetch ? 'skip' : 'full'] as const,
 }
 
-async function fetchActivityEvents(startTs: number, endTs: number, limit?: number): Promise<ActivityEvent[]> {
+async function fetchActivityEvents(
+  startTs: number,
+  endTs: number,
+  limit?: number,
+): Promise<{ events: ActivityEvent[]; readSource: ComputerActivityReadSource }> {
+  if (!isDesktopRuntime()) {
+    return { events: [], readSource: 'unavailable' }
+  }
+
   try {
-    // Check if we're in Tauri environment
-    if (isTauri()) {
-      if (process.env.NODE_ENV !== 'production') { console.log('[useComputerActivity] isTauri()=true, attempting Tauri invoke for detailed activity…') }
-      try {
-        const response = await invokeDetailedActivityWithInitRetry({
-          startTs,
-          endTs,
-          limit,
-        })
-        if (process.env.NODE_ENV !== 'production') { console.log(`[useComputerActivity] Tauri invoke succeeded: ${response.events.length} events, active_ms=${response.total_active_ms}`) }
-
-        return response.events.map(e => ({
-          id: e.id,
-          ts_start: e.ts_start,
-          ts_end: e.ts_end,
-          duration_ms: e.duration_ms,
-          app_bundle_id: e.app_bundle_id,
-          app_name: e.app_name,
-          window_title: e.window_title,
-          browser_url: e.browser_url,
-          browser_domain: e.browser_domain,
-          is_afk: e.is_afk,
-          is_incognito: e.is_incognito,
-        }))
-      } catch (tauriError) {
-        console.error('[useComputerActivity] Tauri invoke FAILED — IPC bridge likely unavailable:', tauriError)
-        if (process.env.NODE_ENV !== 'production') { console.log('[useComputerActivity] Falling through to HTTP fetch…') }
-      }
-    }
-
-    // Fallback to API for web version
-    const params = new URLSearchParams({
-      start_ts: startTs.toString(),
-      end_ts: endTs.toString(),
+    const response = await invokeDetailedActivityWithInitRetry({
+      startTs,
+      endTs,
+      limit,
     })
-    
-    const response = await fetch(`/api/watcher/activity?${params}`)
-    if (!response.ok) {
-      throw new Error('Failed to fetch activity')
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`[useComputerActivity] local activity.db: ${response.events.length} events`)
     }
-    
-    const data = await response.json()
-    return data.events || []
-  } catch (error) {
-    console.error('Failed to fetch activity events:', error)
-    return []
+
+    return {
+      readSource: 'local',
+      events: response.events.map((e) => ({
+        id: e.id,
+        ts_start: e.ts_start,
+        ts_end: e.ts_end,
+        duration_ms: e.duration_ms,
+        app_bundle_id: e.app_bundle_id,
+        app_name: e.app_name,
+        window_title: e.window_title,
+        browser_url: e.browser_url,
+        browser_domain: e.browser_domain,
+        is_afk: e.is_afk,
+        is_incognito: e.is_incognito,
+      })),
+    }
+  } catch (tauriError) {
+    console.error('[useComputerActivity] activity.db unavailable:', tauriError)
+    return { events: [], readSource: 'unavailable' }
   }
 }
 
@@ -222,11 +189,6 @@ export interface UseComputerActivityReturn {
   range: TimeRangePreset
   setRange: (range: TimeRangePreset) => void
   refresh: () => void
-  // Drill-down
-  selectedSegment: SessionSegment | null
-  selectSegment: (segment: SessionSegment | null) => void
-  drillDownData: DrillDownData | null
-  isDrillLoading: boolean
 }
 
 export function useComputerActivity(
@@ -240,12 +202,9 @@ export function useComputerActivity(
     skipEventFetch = false,
   } = options
   const queryClient = useQueryClient()
+  const { getToken } = useAuth()
+  const { user } = useUser()
   const [range, setRange] = useState<TimeRangePreset>(initialRange)
-
-  // Drill-down state
-  const [selectedSegment, setSelectedSegment] = useState<SessionSegment | null>(null)
-  const [drillDownData, setDrillDownData] = useState<DrillDownData | null>(null)
-  const [isDrillLoading, setIsDrillLoading] = useState(false)
 
   // Computed time range
   const timeRange = useMemo(() => getTimeRangeMs(range), [range])
@@ -269,7 +228,7 @@ export function useComputerActivity(
     queryFn: () => (
       source === 'desktop'
         ? fetchAggregatedStats(timeRange.start, timeRange.end)
-        : fetchScreenTimeAggregatedStats(timeRange.start, timeRange.end)
+        : fetchScreenTimeAggregatedStats(getToken, user?.id, timeRange.start, timeRange.end)
     ),
     placeholderData: (previous) => previous ?? null,
     staleTime: QUERY_POLICY.computerSnapshot.staleTime,
@@ -283,18 +242,18 @@ export function useComputerActivity(
     queryKey: computerActivityKeys.events(source, rangeKey, eventLimit, skipEventFetch),
     queryFn: async () => {
       if (source !== 'desktop' || skipEventFetch) {
-        return [] as ActivityEvent[]
+        return { events: [] as ActivityEvent[], readSource: undefined as ComputerActivityReadSource | undefined }
       }
 
-      const rawEvents = await fetchActivityEvents(timeRange.start, timeRange.end, eventLimit)
-      const dedupedEvents = deduplicateEvents(rawEvents)
-      if (dedupedEvents.length < rawEvents.length && process.env.NODE_ENV !== 'production') {
-        console.log(`[useComputerActivity] Deduplicated ${rawEvents.length - dedupedEvents.length} redundant events`)
+      const raw = await fetchActivityEvents(timeRange.start, timeRange.end, eventLimit)
+      const dedupedEvents = deduplicateEvents(raw.events)
+      if (dedupedEvents.length < raw.events.length && process.env.NODE_ENV !== 'production') {
+        console.log(`[useComputerActivity] Deduplicated ${raw.events.length - dedupedEvents.length} redundant events`)
       }
-      return dedupedEvents
+      return { events: dedupedEvents, readSource: raw.readSource }
     },
     enabled: source === 'desktop',
-    placeholderData: (previous) => previous ?? [],
+    placeholderData: (previous) => previous ?? { events: [], readSource: undefined },
     staleTime: QUERY_POLICY.computerEvents.staleTime,
     gcTime: QUERY_POLICY.computerEvents.gcTime,
     refetchOnWindowFocus: false,
@@ -302,8 +261,22 @@ export function useComputerActivity(
     refetchIntervalInBackground: autoRefresh,
   })
 
-  const events = source === 'desktop' ? (eventsQuery.data ?? []) : []
+  const events = source === 'desktop' ? (eventsQuery.data?.events ?? []) : []
+  const eventsReadSource = eventsQuery.data?.readSource
   const aggregatedStats = aggregatedQuery.data ?? null
+  const aggregatedReadSource = aggregatedStats?.read_source
+    || (aggregatedStats?.source === 'local' || aggregatedStats?.source === 'synced' || aggregatedStats?.source === 'unavailable'
+      ? aggregatedStats.source
+      : undefined)
+  const readSource: ComputerActivityReadSource = source !== 'desktop'
+    ? 'synced'
+    : (eventsReadSource === 'unavailable' && aggregatedReadSource === 'unavailable'
+      ? 'unavailable'
+      : eventsReadSource === 'local' || aggregatedReadSource === 'local'
+        ? 'local'
+        : aggregatedReadSource === 'synced' || eventsReadSource === 'synced'
+          ? 'synced'
+          : eventsReadSource || aggregatedReadSource || 'unavailable')
   const hasAggregatedData = Boolean(
     Number(aggregatedStats?.summary?.total_active_ms || 0) > 0
     || (aggregatedStats?.daily?.length || 0) > 0
@@ -324,41 +297,6 @@ export function useComputerActivity(
       )!.message
     : null
 
-  // Clear drill-down when range changes
-  useEffect(() => {
-    setSelectedSegment(null)
-    setDrillDownData(null)
-  }, [range, source])
-  
-  // Handle segment selection for drill-down
-  const selectSegment = useCallback(async (segment: SessionSegment | null) => {
-    setSelectedSegment(segment)
-    
-    if (!segment) {
-      setDrillDownData(null)
-      return
-    }
-    
-    setIsDrillLoading(true)
-    
-    try {
-      // Filter events for this segment's time range
-      const segmentEvents = events.filter(
-        e => e.ts_start >= segment.start && e.ts_end <= segment.end
-      )
-      
-      setDrillDownData({
-        segment,
-        events: segmentEvents,
-        totalDurationMs: segment.durationMs,
-      })
-    } catch (err) {
-      console.error('Failed to load drill-down data:', err)
-    } finally {
-      setIsDrillLoading(false)
-    }
-  }, [events])
-
   const refresh = useCallback(() => {
     void queryClient.invalidateQueries({
       queryKey: computerActivityKeys.aggregated(source, rangeKey),
@@ -372,13 +310,8 @@ export function useComputerActivity(
   
   // Build view model from events
   const viewModel = useMemo<ActivityBreakdownViewModel>(() => {
-    const rawSegments = eventsToSegments(events)
-    const segments = mergeAdjacentSegments(rawSegments, 60000)
-
-    const micro = computeMicroMetrics(events)
     const fallbackApps = topApps(events, 10)
     const fallbackDomains = topDomains(events, 10)
-    const fallbackHeader = buildAttentionHeader(events, timeRange.start, timeRange.end)
 
     // Aggregated stats are day-level; for sub-day ranges prefer raw
     // event-derived values. Fall back to aggregated if events are empty.
@@ -386,7 +319,7 @@ export function useComputerActivity(
     const hasRawEvents = fallbackApps.length > 0 || fallbackDomains.length > 0
     const useAggregated = aggregatedStats != null && (source === 'iphone' || !isSubDayRange || !hasRawEvents)
 
-    const dailySparkline = useAggregated
+    const dailyTotals = useAggregated
       ? (aggregatedStats?.daily || []).map((row: any) => {
           const dayValue = (row.day || '').toString()
           const dayMs = dayValue ? new Date(`${dayValue}T00:00:00`).getTime() : 0
@@ -394,14 +327,14 @@ export function useComputerActivity(
             0,
             Math.min(Number(row.active_ms ?? row.total_active_ms ?? 0), 24 * 60 * 60 * 1000),
           )
-          return { x: dayMs, yMs: clampedMs, label: dayValue }
+          return { x: dayMs, yMs: clampedMs }
         }).filter((point: any) => Number.isFinite(point.x) && point.x > 0)
       : []
 
     const rawSummaryActiveMs = useAggregated
       ? Math.max(0, Number(aggregatedStats?.summary?.total_active_ms || 0))
       : 0
-    const totalDailyMs = dailySparkline.reduce((sum: number, point: any) => sum + (point.yMs || 0), 0)
+    const totalDailyMs = dailyTotals.reduce((sum: number, point: any) => sum + (point.yMs || 0), 0)
     const rangeSpanMs = Math.max(0, timeRange.end - timeRange.start)
     const summaryCapMs = totalDailyMs > 0 ? totalDailyMs : rangeSpanMs
     const summaryActiveMs = summaryCapMs > 0 ? Math.min(rawSummaryActiveMs, summaryCapMs) : rawSummaryActiveMs
@@ -444,30 +377,13 @@ export function useComputerActivity(
       if (domainsFromAggregates.length > 0) domains = domainsFromAggregates
     }
 
-    let aggregatedDeltaPct: number | null = null
-    let aggregatedDeltaMs: number | null = null
-    if (dailySparkline.length >= 2) {
-      const half = Math.floor(dailySparkline.length / 2)
-      const firstHalf = dailySparkline.slice(0, half)
-      const secondHalf = dailySparkline.slice(half)
-      const firstTotal = firstHalf.reduce((sum: number, point: any) => sum + (point.yMs || 0), 0)
-      const secondTotal = secondHalf.reduce((sum: number, point: any) => sum + (point.yMs || 0), 0)
-      if (firstTotal > 0) {
-        aggregatedDeltaPct = ((secondTotal - firstTotal) / firstTotal) * 100
-        aggregatedDeltaMs = secondTotal - firstTotal
-      }
+    const header = {
+      primaryLabel: 'Active Time',
+      primaryValueMs: useAggregated && (summaryActiveMs > 0 || dailyTotals.length > 0)
+        ? (summaryActiveMs > 0 ? summaryActiveMs : dailyTotals.reduce((sum: number, point: any) => sum + (point.yMs || 0), 0))
+        : calculateUniqueActiveTime(events),
     }
 
-    const header = useAggregated && (summaryActiveMs > 0 || dailySparkline.length > 0)
-      ? {
-          primaryLabel: 'Active Time',
-          primaryValueMs: summaryActiveMs > 0 ? summaryActiveMs : dailySparkline.reduce((sum: number, point: any) => sum + (point.yMs || 0), 0),
-          deltaPct: aggregatedDeltaPct,
-          deltaMs: aggregatedDeltaMs,
-          sparkline: dailySparkline.length > 0 ? dailySparkline : fallbackHeader.sparkline,
-        }
-      : fallbackHeader
-    
     const capabilities = {
       supportsDomains: source === 'desktop' ? true : Boolean(aggregatedStats?.summary?.supports_domains),
       domainDisclosure: source === 'iphone' ? (aggregatedStats?.summary?.domain_disclosure || null) : null,
@@ -479,19 +395,8 @@ export function useComputerActivity(
       source,
       capabilities,
       header,
-      segments: source === 'desktop' ? segments : [],
       apps,
       domains,
-      micro: source === 'desktop'
-        ? micro
-        : {
-            focusBlocks: 0,
-            switches: 0,
-            longestBlockMs: 0,
-            longestBlockLabel: undefined,
-            totalActiveMs: header.primaryValueMs,
-            totalAfkMs: 0,
-          },
       range: {
         start: timeRange.start,
         end: timeRange.end,
@@ -499,18 +404,15 @@ export function useComputerActivity(
       },
       isLoading,
       error,
+      readSource,
     }
-  }, [events, aggregatedStats, timeRange.start, timeRange.end, range, source, isLoading, error])
+  }, [events, aggregatedStats, timeRange.start, timeRange.end, range, source, isLoading, error, readSource])
   
   return {
     viewModel,
     range,
     setRange,
     refresh,
-    selectedSegment,
-    selectSegment,
-    drillDownData,
-    isDrillLoading,
   }
 }
 

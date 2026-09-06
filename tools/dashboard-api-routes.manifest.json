@@ -1,5 +1,5 @@
 {
-  "description": "Allowlist for Next.js API route files. Normal dashboard data access should use the generated backend client or the OpenAPI catch-all proxy instead of adding route files here.",
+  "description": "Complete ownership contract for Next.js API routes. Ordinary FastAPI JSON access uses the generated client through the JSON-only OpenAPI catch-all; non-JSON and Next-owned boundaries are explicit.",
   "categories": [
     "backend-catchall",
     "ai-parser",
@@ -8,168 +8,150 @@
     "auth-boundary",
     "compatibility",
     "email-boundary",
-    "import-boundary",
+    "export-adapter",
     "internal-trigger",
+    "multipart-adapter",
     "oauth-callback",
     "voice-boundary",
     "webhook"
   ],
+  "contentClasses": [
+    "json",
+    "stream",
+    "multipart-json",
+    "mixed-export",
+    "oauth-redirect",
+    "provider-webhook",
+    "audio-multipart"
+  ],
   "routes": {
     "apps/dashboard/app/api/[...backendPath]/route.ts": {
+      "methods": ["DELETE", "GET", "PATCH", "POST", "PUT"],
       "category": "backend-catchall",
-      "reason": "OpenAPI-allowlisted backend proxy for generated-client compatible dashboard calls."
-    },
-    "apps/dashboard/app/api/analytics/correlation/route.ts": {
-      "category": "analytics-boundary",
-      "reason": "Tinybird-backed analytics composition stays server-side until analytics is fully moved behind FastAPI."
-    },
-    "apps/dashboard/app/api/analytics/habits/daily-values/route.ts": {
-      "category": "analytics-boundary",
-      "reason": "Tinybird-backed habit analytics composition with server-only query details."
-    },
-    "apps/dashboard/app/api/analytics/habits/logs/all/route.ts": {
-      "category": "compatibility",
-      "reason": "Legacy dashboard compatibility aggregation that needs a route-specific migration before deletion."
-    },
-    "apps/dashboard/app/api/analytics/habits/logs/route.ts": {
-      "category": "analytics-boundary",
-      "reason": "Tinybird-backed habit log query with server-side analytics semantics."
-    },
-    "apps/dashboard/app/api/analytics/habits/summary/route.ts": {
-      "category": "analytics-boundary",
-      "reason": "Tinybird-backed habit summary query with server-side analytics semantics."
-    },
-    "apps/dashboard/app/api/analytics/habits/trends/route.ts": {
-      "category": "analytics-boundary",
-      "reason": "Tinybird-backed habit trend query with server-side analytics semantics."
-    },
-    "apps/dashboard/app/api/analytics/heart-rate/series/route.ts": {
-      "category": "analytics-boundary",
-      "reason": "Tinybird-backed biometric series query with server-side analytics semantics."
-    },
-    "apps/dashboard/app/api/analytics/heart-rate/summary/route.ts": {
-      "category": "analytics-boundary",
-      "reason": "Tinybird-backed biometric summary query with server-side analytics semantics."
+      "owner": "generated-fastapi-client",
+      "contentClass": "json",
+      "callers": ["generated backend client"],
+      "reason": "OpenAPI operation-and-method allowlisted JSON proxy for generated-client compatible dashboard calls."
     },
     "apps/dashboard/app/api/auth/desktop-sign-in-token/route.ts": {
+      "methods": ["GET", "PATCH", "POST", "PUT"],
       "category": "auth-boundary",
-      "reason": "Desktop auth handoff endpoint that depends on Next/Clerk session context."
+      "owner": "desktop-auth-browser-bridge",
+      "contentClass": "json",
+      "callers": ["desktop sign-in browser page", "native desktop auth consume", "native desktop auth bridge"],
+      "reason": "Desktop auth ticket, durable status, one-time native consumption, and acknowledgement boundary that depends on Clerk browser session context."
     },
     "apps/dashboard/app/api/calendar/summary/route.ts": {
+      "methods": ["POST"],
       "category": "analytics-boundary",
-      "reason": "Server-side calendar summary aggregation with analytics backend dependencies."
+      "owner": "calendar-summary-adapter",
+      "contentClass": "json",
+      "callers": ["calendar AI summary surface"],
+      "reason": "Server-side calendar summary aggregation with analytics and model provider dependencies."
     },
     "apps/dashboard/app/api/chat/habits/route.ts": {
+      "methods": ["POST"],
       "category": "ai-parser",
+      "owner": "habit-parser-adapter",
+      "contentClass": "json",
+      "callers": ["habit AI parsing surface"],
       "reason": "Server-side AI habit parsing endpoint that uses provider credentials and compatibility behavior."
     },
-    "apps/dashboard/app/api/chat/sms/proactive/route.ts": {
-      "category": "ai-streaming",
-      "reason": "SMS proactive chat boundary that adapts Sendblue/backend behavior to dashboard callers."
-    },
-    "apps/dashboard/app/api/chat/sms/route.ts": {
-      "category": "ai-streaming",
-      "reason": "SMS chat adapter boundary for the shared chat runtime."
-    },
     "apps/dashboard/app/api/chat/stream/route.ts": {
+      "methods": ["POST"],
       "category": "ai-streaming",
-      "reason": "Streaming chat response boundary that must stay in Next for browser stream semantics."
-    },
-    "apps/dashboard/app/api/computer-activity/breakdown/route.ts": {
-      "category": "compatibility",
-      "reason": "Legacy computer activity response-shaping route pending direct generated-client migration."
+      "owner": "assistant-kernel-web-adapter",
+      "contentClass": "stream",
+      "callers": ["browser chat composer"],
+      "reason": "Streaming chat response boundary that stays in Next for browser stream and cancellation semantics."
     },
     "apps/dashboard/app/api/deepgram/token/route.ts": {
+      "methods": ["POST"],
       "category": "voice-boundary",
-      "reason": "Server-only Deepgram token minting endpoint."
-    },
-    "apps/dashboard/app/api/import/apple-health/import/route.ts": {
-      "category": "import-boundary",
-      "reason": "Upload/import workflow boundary with file parsing and progress behavior."
-    },
-    "apps/dashboard/app/api/import/apple-health/parse/route.ts": {
-      "category": "import-boundary",
-      "reason": "Apple Health file parsing boundary."
-    },
-    "apps/dashboard/app/api/import/extract-from-image/route.ts": {
-      "category": "import-boundary",
-      "reason": "Server-side OCR/image extraction endpoint with provider credentials."
-    },
-    "apps/dashboard/app/api/import/import/route.ts": {
-      "category": "import-boundary",
-      "reason": "Import execution boundary for uploaded data."
-    },
-    "apps/dashboard/app/api/import/parse/route.ts": {
-      "category": "import-boundary",
-      "reason": "Generic file parsing boundary for import previews."
+      "owner": "deepgram-token-adapter",
+      "contentClass": "json",
+      "callers": ["voice composer"],
+      "reason": "Server-only short-lived Deepgram token minting endpoint for authenticated voice callers."
     },
     "apps/dashboard/app/api/import/preview/route.ts": {
-      "category": "import-boundary",
-      "reason": "Import preview boundary that handles uploaded payloads."
+      "methods": ["POST"],
+      "category": "multipart-adapter",
+      "owner": "fastapi-import-preview",
+      "contentClass": "multipart-json",
+      "callers": ["components/data-import/use-data-import.ts"],
+      "reason": "Fixed multipart adapter for the named FastAPI import-preview operation and no other backend path."
     },
-    "apps/dashboard/app/api/import/runs/[runId]/cancel/route.ts": {
-      "category": "import-boundary",
-      "reason": "Import run action boundary retained for upload workflow compatibility."
-    },
-    "apps/dashboard/app/api/import/runs/[runId]/route.ts": {
-      "category": "import-boundary",
-      "reason": "Import run status boundary retained for upload workflow compatibility."
-    },
-    "apps/dashboard/app/api/import/runs/[runId]/start/route.ts": {
-      "category": "import-boundary",
-      "reason": "Import run action boundary retained for upload workflow compatibility."
-    },
-    "apps/dashboard/app/api/import/runs/[runId]/undo/route.ts": {
-      "category": "import-boundary",
-      "reason": "Import run undo boundary retained for upload workflow compatibility."
-    },
-    "apps/dashboard/app/api/import/runs/route.ts": {
-      "category": "import-boundary",
-      "reason": "Import run listing/creation boundary retained for upload workflow compatibility."
+    "apps/dashboard/app/api/integrations/oauth/store-code/route.ts": {
+      "methods": ["GET", "POST"],
+      "category": "oauth-callback",
+      "owner": "desktop-oauth-code-bridge",
+      "contentClass": "json",
+      "callers": ["desktop Whoop and Tesla OAuth polling"],
+      "reason": "Temporary OAuth code bridge for desktop Whoop and Tesla polling across browser and native contexts."
     },
     "apps/dashboard/app/api/integrations/tesla/callback/route.ts": {
+      "methods": ["GET"],
       "category": "oauth-callback",
-      "reason": "Third-party OAuth callback boundary."
-    },
-    "apps/dashboard/app/api/integrations/tesla/store-code/route.ts": {
-      "category": "oauth-callback",
-      "reason": "OAuth code storage bridge for the desktop/dashboard flow."
+      "owner": "tesla-oauth-adapter",
+      "contentClass": "oauth-redirect",
+      "callers": ["Tesla OAuth provider"],
+      "reason": "Third-party Tesla OAuth callback boundary that terminates in the authenticated dashboard."
     },
     "apps/dashboard/app/api/integrations/whoop/callback/route.ts": {
+      "methods": ["GET"],
       "category": "oauth-callback",
-      "reason": "Third-party OAuth callback boundary."
-    },
-    "apps/dashboard/app/api/integrations/whoop/store-code/route.ts": {
-      "category": "oauth-callback",
-      "reason": "OAuth code storage bridge for the desktop/dashboard flow."
-    },
-    "apps/dashboard/app/api/integrations/whoop/sync/route.ts": {
-      "category": "compatibility",
-      "reason": "Legacy Whoop sync shape and fallback behavior pending direct backend client migration."
+      "owner": "whoop-oauth-adapter",
+      "contentClass": "oauth-redirect",
+      "callers": ["Whoop OAuth provider"],
+      "reason": "Third-party Whoop OAuth callback boundary that terminates in the authenticated dashboard."
     },
     "apps/dashboard/app/api/internal/workflows/execute/route.ts": {
+      "methods": ["POST"],
       "category": "internal-trigger",
-      "reason": "Internal workflow execution trigger boundary."
+      "owner": "workflow-trigger-adapter",
+      "contentClass": "json",
+      "callers": ["authenticated internal workflow runner"],
+      "reason": "Internal authenticated workflow execution trigger that adapts clock and queue delivery."
     },
     "apps/dashboard/app/api/reports/send/route.ts": {
+      "methods": ["POST"],
       "category": "email-boundary",
-      "reason": "Server-side report email dispatch boundary."
+      "owner": "report-email-adapter",
+      "contentClass": "json",
+      "callers": ["reports send action"],
+      "reason": "Server-side report email dispatch boundary that retains provider credentials outside the client."
     },
-    "apps/dashboard/app/api/search/route.ts": {
-      "category": "compatibility",
-      "reason": "Search compatibility route with local quick-action fallback behavior."
-    },
-    "apps/dashboard/app/api/sendblue/webhook/route.ts": {
-      "category": "webhook",
-      "reason": "External Sendblue webhook receiver."
+    "apps/dashboard/app/api/screenshot/preview/route.ts": {
+      "methods": ["POST"],
+      "category": "multipart-adapter",
+      "owner": "fastapi-screenshot-preview",
+      "contentClass": "multipart-json",
+      "callers": ["components/ai-habit-chat/use-ai-habit-screenshot.ts"],
+      "reason": "Fixed multipart adapter for the named FastAPI screenshot-preview operation and no other backend path."
     },
     "apps/dashboard/app/api/sentry-smoke/route.ts": {
+      "methods": ["POST"],
       "category": "compatibility",
-      "reason": "Local smoke-test endpoint for frontend observability validation."
+      "owner": "dashboard-observability-smoke",
+      "contentClass": "json",
+      "callers": ["local observability smoke command"],
+      "reason": "Local smoke-test endpoint for frontend observability validation and no product mutation."
+    },
+    "apps/dashboard/app/api/wearables/apple/export/route.ts": {
+      "methods": ["GET"],
+      "category": "export-adapter",
+      "owner": "fastapi-apple-export",
+      "contentClass": "mixed-export",
+      "callers": ["use-apple-health-export.ts", "components/apple-watch-settings.tsx"],
+      "reason": "Fixed export adapter preserving the named FastAPI operation's JSON, text, Markdown, and CSV responses."
     },
     "apps/dashboard/app/api/whisper/route.ts": {
+      "methods": ["POST"],
       "category": "voice-boundary",
-      "reason": "Server-side Whisper transcription boundary for uploaded audio."
+      "owner": "whisper-transcription-adapter",
+      "contentClass": "audio-multipart",
+      "callers": ["voice composer transcription"],
+      "reason": "Server-side Whisper transcription boundary for uploaded audio and provider-held credentials."
     }
   }
 }

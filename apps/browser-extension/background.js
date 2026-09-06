@@ -7,9 +7,11 @@
  */
 
 import {
+  acknowledgeOutboxHead,
+  createSerializedExecutor,
+  enqueueOutboxEvent,
   getServerCandidates,
-  isSameHeartbeat,
-  replayQueuedEvents,
+  hydrateOutboxState,
   shouldSendTabUpdateHeartbeat,
 } from './background-core.js';
 
@@ -26,6 +28,8 @@ const CONFIG = {
   ],
   serverUrlsStorageKey: 'serverUrls',
   activeServerUrlStorageKey: 'serverUrl',
+  outboxStorageKey: 'heartbeatOutboxV1',
+  legacyQueueStorageKey: 'offlineQueue',
   heartbeatAlarmName: 'ritual-heartbeat',
   heartbeatIntervalSeconds: 20,
   minimumAlarmMinutes: 0.5, // Chrome may clamp to platform minimum
@@ -52,9 +56,11 @@ let lastHeartbeatTime = 0;
 let totalHeartbeatsSent = 0;
 let totalErrors = 0;
 let cachedTabCount = 0;
-let isReplayingQueue = false;
 let reconnectAttempts = 0;
 let nextReconnectAllowedAt = 0;
+const serializeOutbox = createSerializedExecutor((error) => {
+  console.debug('Outbox operation failed:', error?.message || error);
+});
 
 function normalizeServerUrl(candidate) {
   if (!candidate || typeof candidate !== 'string') {
@@ -580,16 +586,16 @@ function getReconnectWaitMs() {
 // Heartbeat Sending
 // ============================================================
 
-async function sendHeartbeat(tab, options = {}) {
+async function buildHeartbeat(tab, options = {}) {
   if (!tab?.url || !tab?.title) {
     console.debug('Skipping heartbeat: no URL or title');
-    return false;
+    return null;
   }
 
   const domain = extractDomain(tab.url);
   if (!domain) {
     console.debug('Skipping heartbeat: internal page or no domain');
-    return false;
+    return null;
   }
 
   const visibleContext = await captureVisibleContext(tab);
@@ -617,102 +623,98 @@ async function sendHeartbeat(tab, options = {}) {
     timestamp_ms: options.timestampMs || Date.now(),
   };
 
-  const result = await postHeartbeatPayload(heartbeat);
-
-  if (result.ok) {
-    serverConnected = true;
-    lastHeartbeatTime = Date.now();
-    totalHeartbeatsSent++;
-    resetReconnectBackoff();
-
-    if (!options.skipReplay) {
-      await replayOfflineQueue();
-    }
-
-    console.debug(
-      `Heartbeat ${result.result.status}: ${domain} (session: ${result.result.session_id}, server: ${result.serverUrl})`
-    );
-
-    return true;
-  }
-
-  serverConnected = false;
-  totalErrors++;
-  const retryDelayMs = scheduleReconnectBackoff();
-  console.debug('Heartbeat failed:', result.error?.message || 'unknown error');
-  console.debug(`Next reconnect attempt in ${retryDelayMs}ms`);
-
-  if (options.queueOnFail !== false) {
-    await queueOfflineEvent(heartbeat);
-  }
-
-  return false;
+  return heartbeat;
 }
 
 // ============================================================
 // Offline Queue
 // ============================================================
 
-async function queueOfflineEvent(heartbeat) {
-  try {
-    const { offlineQueue = [] } = await chrome.storage.local.get('offlineQueue');
+async function readOutboxState() {
+  const stored = await chrome.storage.local.get([
+    CONFIG.outboxStorageKey,
+    CONFIG.legacyQueueStorageKey,
+  ]);
+  return hydrateOutboxState(
+    stored[CONFIG.outboxStorageKey],
+    stored[CONFIG.legacyQueueStorageKey]
+  );
+}
 
-    const last = offlineQueue[offlineQueue.length - 1];
-    if (last && isSameHeartbeat(last, heartbeat)) {
+async function writeOutboxState(state, { removeLegacy = false } = {}) {
+  await chrome.storage.local.set({ [CONFIG.outboxStorageKey]: state });
+  if (removeLegacy) {
+    await chrome.storage.local.remove(CONFIG.legacyQueueStorageKey);
+  }
+  reconnectAttempts = state.reconnectAttempts;
+  nextReconnectAllowedAt = state.retryAt;
+}
+
+async function initializeOutbox() {
+  return serializeOutbox(async () => {
+    const state = await readOutboxState();
+    await writeOutboxState(state, { removeLegacy: true });
+    return state;
+  });
+}
+
+async function enqueueHeartbeat(heartbeat) {
+  return serializeOutbox(async () => {
+    const state = enqueueOutboxEvent(
+      await readOutboxState(),
+      heartbeat,
+      CONFIG.maxOfflineQueue
+    );
+    await writeOutboxState(state, { removeLegacy: true });
+    console.debug(`Queued heartbeat (${state.pending.length} pending)`);
+  });
+}
+
+async function signalOutboxPump({ ignoreBackoff = false } = {}) {
+  return serializeOutbox(async () => {
+    let state = await readOutboxState();
+    reconnectAttempts = state.reconnectAttempts;
+    nextReconnectAllowedAt = state.retryAt;
+
+    if (!ignoreBackoff && getReconnectWaitMs() > 0) {
       return;
     }
 
-    if (offlineQueue.length >= CONFIG.maxOfflineQueue) {
-      offlineQueue.shift();
-    }
-
-    offlineQueue.push({
-      ...heartbeat,
-      queued_at: Date.now(),
-    });
-
-    await chrome.storage.local.set({ offlineQueue });
-    console.debug(`Queued offline event (${offlineQueue.length} in queue)`);
-  } catch (e) {
-    console.debug('Failed to queue offline event:', e.message);
-  }
-}
-
-async function replayOfflineQueue() {
-  if (isReplayingQueue) return;
-
-  isReplayingQueue = true;
-  try {
-    const { offlineQueue = [] } = await chrome.storage.local.get('offlineQueue');
-    if (offlineQueue.length === 0) return;
-
-    console.debug(`Replaying ${offlineQueue.length} offline events...`);
-
-    const replayResult = await replayQueuedEvents(offlineQueue, async (event) => {
+    while (state.pending.length > 0) {
+      const event = state.pending[0];
       const sent = await postHeartbeatPayload(event);
       if (!sent.ok) {
         serverConnected = false;
-        return false;
+        totalErrors++;
+        const retryDelayMs = scheduleReconnectBackoff();
+        state = {
+          ...state,
+          reconnectAttempts,
+          retryAt: nextReconnectAllowedAt,
+        };
+        await writeOutboxState(state);
+        console.debug('Heartbeat failed:', sent.error?.message || 'unknown error');
+        console.debug(`Next reconnect attempt in ${retryDelayMs}ms`);
+        return;
       }
 
+      // Commit each acknowledgement independently. If the worker stops between
+      // the POST and this write, the backend dedup key makes retry safer than loss.
+      state = acknowledgeOutboxHead({
+        ...state,
+        reconnectAttempts: 0,
+        retryAt: 0,
+      });
+      await writeOutboxState(state);
       serverConnected = true;
       lastHeartbeatTime = Date.now();
       totalHeartbeatsSent++;
-      return true;
-    });
-
-    await chrome.storage.local.set({ offlineQueue: replayResult.remaining });
-
-    if (replayResult.remaining.length === 0) {
-      console.debug('Offline queue cleared');
-    } else {
-      console.debug(`Offline replay paused (${replayResult.remaining.length} remaining)`);
+      resetReconnectBackoff();
+      console.debug(
+        `Heartbeat ${sent.result.status} (session: ${sent.result.session_id}, server: ${sent.serverUrl})`
+      );
     }
-  } catch (e) {
-    console.debug('Failed to replay offline queue:', e.message);
-  } finally {
-    isReplayingQueue = false;
-  }
+  });
 }
 
 // ============================================================
@@ -720,15 +722,6 @@ async function replayOfflineQueue() {
 // ============================================================
 
 async function heartbeat(reason = 'periodic', options = {}) {
-  if (!options.ignoreBackoff) {
-    const waitMs = getReconnectWaitMs();
-    if (waitMs > 0) {
-      console.debug(`Heartbeat skipped (${reason}): reconnect backoff ${waitMs}ms remaining`);
-      await updateStatus();
-      return;
-    }
-  }
-
   const tab = await getActiveTab();
   if (!tab) {
     console.debug(`Heartbeat skipped (${reason}): no active tab`);
@@ -738,7 +731,11 @@ async function heartbeat(reason = 'periodic', options = {}) {
 
   currentTab = tab;
   console.debug(`Heartbeat (${reason}): ${tab.url?.substring(0, 60)}`);
-  await sendHeartbeat(tab, options);
+  const event = await buildHeartbeat(tab, options);
+  if (event) {
+    await enqueueHeartbeat(event);
+    await signalOutboxPump({ ignoreBackoff: options.ignoreBackoff });
+  }
   await updateStatus();
 }
 
@@ -787,7 +784,7 @@ chrome.tabs.onRemoved.addListener(() => {
 chrome.windows.onFocusChanged.addListener(async (windowId) => {
   if (windowId === chrome.windows.WINDOW_ID_NONE) {
     browserFocused = false;
-    await heartbeat('focus-lost', { queueOnFail: true });
+    await heartbeat('focus-lost');
   } else {
     browserFocused = true;
     await heartbeat('focus-gained');
@@ -797,7 +794,7 @@ chrome.windows.onFocusChanged.addListener(async (windowId) => {
 chrome.idle.setDetectionInterval(CONFIG.idleDetectionSeconds);
 chrome.idle.onStateChanged.addListener(async (newState) => {
   idleState = newState;
-  await heartbeat(`idle-${newState}`, { queueOnFail: true });
+  await heartbeat(`idle-${newState}`);
 });
 
 // ============================================================
@@ -886,12 +883,12 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   console.info(`Ritual Browser Tracker installed (${details.reason})`);
 
   await loadServerConfig();
+  await initializeOutbox();
   scheduleHeartbeatAlarm();
   await refreshTabCount();
 
   await chrome.storage.local.set({
     enabled: true,
-    offlineQueue: [],
     [CONFIG.serverUrlsStorageKey]: serverUrls,
     [CONFIG.activeServerUrlStorageKey]: activeServerUrl,
     status: {
@@ -915,6 +912,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 chrome.runtime.onStartup.addListener(async () => {
   console.info('Ritual Browser Tracker starting (browser opened)');
   await loadServerConfig();
+  await initializeOutbox();
   scheduleHeartbeatAlarm();
   await refreshTabCount();
   await heartbeat('startup');
@@ -956,6 +954,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return false;
 });
 
-// Boot-time initialization for service worker restarts.
-loadServerConfig().then(() => refreshTabCount().then(() => heartbeat('service-worker-start')));
+// Boot-time initialization for service worker restarts. Hydration runs before
+// enqueueing so legacy queued events are never overwritten by a fresh event.
+loadServerConfig().then(() =>
+  initializeOutbox().then(() =>
+    refreshTabCount().then(() => heartbeat('service-worker-start'))
+  )
+);
 console.info(`Ritual Browser Tracker loaded (browser: ${BROWSER_NAME})`);

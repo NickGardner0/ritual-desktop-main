@@ -50,6 +50,12 @@ pub struct TursoSyncConfig {
     pub expires_at: String,
     #[serde(default)]
     pub database_name: String,
+    #[serde(default = "default_activity_schema_version")]
+    pub activity_schema_version: i64,
+}
+
+fn default_activity_schema_version() -> i64 {
+    1
 }
 
 #[derive(serde::Serialize)]
@@ -89,9 +95,7 @@ fn ensure_bundled_voice_runtime() -> Result<(), String> {
 }
 
 fn turso_sync_config_path() -> Result<std::path::PathBuf, String> {
-    dirs::home_dir()
-        .ok_or_else(|| "Failed to resolve home directory".to_string())
-        .map(|home| home.join(".ritual").join("turso_sync.json"))
+    Ok(crate::app_paths::data_dir().join("turso_sync.json"))
 }
 
 pub fn load_turso_sync_config() -> Result<Option<TursoSyncConfig>, String> {
@@ -176,17 +180,28 @@ fn clear_turso_sync_config_file() -> Result<(), String> {
     Ok(())
 }
 
+pub(crate) fn clear_turso_sync_config() -> Result<(), String> {
+    clear_turso_sync_config_file()?;
+    apply_turso_env(None);
+    Ok(())
+}
+
 fn apply_turso_env(config: Option<&TursoSyncConfig>) {
     if let Some(config) = config {
         std::env::set_var("TURSO_SYNC_URL", &config.sync_url);
         std::env::set_var("TURSO_AUTH_TOKEN", &config.auth_token);
         std::env::set_var("TURSO_SYNC_EXPIRES_AT", &config.expires_at);
         std::env::set_var("TURSO_DATABASE_NAME", &config.database_name);
+        std::env::set_var(
+            "TURSO_ACTIVITY_SCHEMA_VERSION",
+            config.activity_schema_version.to_string(),
+        );
     } else {
         std::env::remove_var("TURSO_SYNC_URL");
         std::env::remove_var("TURSO_AUTH_TOKEN");
         std::env::remove_var("TURSO_SYNC_EXPIRES_AT");
         std::env::remove_var("TURSO_DATABASE_NAME");
+        std::env::remove_var("TURSO_ACTIVITY_SCHEMA_VERSION");
     }
 }
 
@@ -287,14 +302,19 @@ pub(crate) async fn apply_turso_sync_config_internal(
     Ok(config_file)
 }
 
+#[allow(dead_code)]
+pub(crate) fn has_persisted_auth_token() -> bool {
+    let token_file = crate::app_paths::data_dir().join("auth_token.txt");
+    std::fs::read_to_string(token_file)
+        .map(|value| !value.trim().is_empty())
+        .unwrap_or(false)
+}
+
 pub(crate) fn write_auth_token_to_disk(token: &str) -> Result<std::path::PathBuf, String> {
-    use dirs::home_dir;
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
 
-    let token_dir = home_dir()
-        .ok_or_else(|| "Failed to resolve home directory".to_string())?
-        .join(".ritual");
+    let token_dir = crate::app_paths::data_dir();
     fs::create_dir_all(&token_dir).map_err(|e| format!("Failed to create token directory: {e}"))?;
     let token_file = token_dir.join("auth_token.txt");
 
@@ -309,49 +329,16 @@ pub(crate) fn write_auth_token_to_disk(token: &str) -> Result<std::path::PathBuf
     Ok(token_file)
 }
 
-#[tauri::command]
-#[instrument(skip(auth_token), fields(sync_url = %sync_url, expires_at = %expires_at, database_name = %database_name))]
-pub async fn write_turso_sync_config(
-    sync_url: String,
-    auth_token: String,
-    expires_at: String,
-    database_name: String,
-    origin: Option<String>,
-) -> Result<String, String> {
-    let started_at = Instant::now();
-    let origin =
-        normalize_widget_command_origin(origin.as_deref(), "tauri:write_turso_sync_config:unknown");
-    nw_info!("🔄 Applying Turso sync config origin={}...", origin);
+pub(crate) fn clear_auth_token_on_disk() -> Result<(), String> {
+    use std::fs;
 
-    let config = TursoSyncConfig {
-        sync_url: sync_url.trim().to_string(),
-        auth_token: auth_token.trim().to_string(),
-        expires_at: expires_at.trim().to_string(),
-        database_name: database_name.trim().to_string(),
-    };
+    let token_file = crate::app_paths::data_dir().join("auth_token.txt");
 
-    if config.sync_url.is_empty()
-        || config.auth_token.is_empty()
-        || config.expires_at.is_empty()
-        || config.database_name.is_empty()
-    {
-        return Err(
-            "Turso sync config requires sync_url, auth_token, expires_at, and database_name"
-                .to_string(),
-        );
+    if token_file.exists() {
+        fs::remove_file(&token_file).map_err(|e| format!("Failed to remove token file: {e}"))?;
     }
-    let config_file = apply_turso_sync_config_internal(config, Some(&origin)).await?;
 
-    nw_info!(
-        "✅ Turso sync config written to: {:?} origin={}",
-        config_file,
-        origin
-    );
-    nw_info!(
-        "⏱️ Turso sync config command completed in {}ms",
-        started_at.elapsed().as_millis()
-    );
-    Ok(format!("Turso sync config written to: {:?}", config_file))
+    Ok(())
 }
 
 #[cfg(target_os = "macos")]

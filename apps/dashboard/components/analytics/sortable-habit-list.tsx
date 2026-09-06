@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { X } from 'lucide-react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import {
   DndContext,
   closestCenter,
@@ -170,26 +171,32 @@ const SortableHabitItem = React.memo(function SortableHabitItem({
     }
   };
 
-  const rowBackgroundClass = isContextSelected
-    ? 'bg-[#f6f6f5]'
-    : 'bg-[var(--content-bg)] hover:bg-[#f6f6f5]';
-
   return (
     <>
       <div
         ref={setNodeRef}
         style={style}
-        className={`group grid w-full grid-cols-[minmax(0,1fr)_max-content] items-center gap-x-4 min-h-[27px] rounded-[6px] px-1 py-0 ${rowBackgroundClass} cursor-grab active:cursor-grabbing ${
-          isDragging ? 'shadow-lg bg-[#f5f5f5] opacity-90' : ''
+        className={`group relative grid w-full grid-cols-[minmax(0,1fr)_max-content] items-center gap-x-4 min-h-[27px] px-1.5 py-0 bg-[var(--content-bg)] cursor-grab active:cursor-grabbing ${
+          isDragging ? 'opacity-90' : ''
         }`}
         {...attributes}
         {...listeners}
       >
         <div
-          className="min-w-0 flex items-center rounded-[4px] cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-neutral-300"
+          aria-hidden="true"
+          className={`pointer-events-none absolute inset-x-0 top-1/2 h-[var(--sidebar-row-height)] -translate-y-1/2 rounded-[12px] transition-none ${
+            isDragging
+              ? 'bg-[#f5f5f5] shadow-lg'
+              : isContextSelected
+                ? 'bg-[var(--row-active)]'
+                : 'bg-transparent group-hover:bg-[var(--row-hover)]'
+          }`}
+        />
+        <div
+          className="relative z-[1] min-w-0 flex items-center rounded-[4px] cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-neutral-300"
           role="button"
           tabIndex={0}
-          aria-label={`Open Context for ${displayName}`}
+          aria-label={`Open chat for ${displayName}`}
           onClick={handleOpenContext}
           onKeyDown={handleOpenContextKeyDown}
         >
@@ -199,7 +206,7 @@ const SortableHabitItem = React.memo(function SortableHabitItem({
         </div>
         <div
           ref={metricTriggerRef}
-          className="flex items-center justify-self-end gap-1 cursor-default relative tooltip-container flex-shrink-0"
+          className="relative z-[1] flex items-center justify-self-end gap-1 cursor-default flex-shrink-0 tooltip-container"
           onClick={handleMetricClick}
           onDoubleClick={handleMetricDoubleClick}
         >
@@ -321,6 +328,20 @@ export interface SortableHabitListProps {
   onOpenContext?: (habitId: string) => void;
 }
 
+const HABIT_ROW_ESTIMATE_PX = 36;
+
+function findScrollParent(node: HTMLElement | null): HTMLElement | null {
+  let current = node?.parentElement ?? null;
+  while (current) {
+    const overflowY = window.getComputedStyle(current).overflowY;
+    if (overflowY === 'auto' || overflowY === 'scroll') {
+      return current;
+    }
+    current = current.parentElement;
+  }
+  return node;
+}
+
 function SortableHabitListInner({
   habits,
   onReorder,
@@ -356,6 +377,21 @@ function SortableHabitListInner({
     }
   };
 
+  const listRef = React.useRef<HTMLDivElement>(null);
+  const [scrollElement, setScrollElement] = React.useState<HTMLElement | null>(null);
+
+  React.useLayoutEffect(() => {
+    setScrollElement(findScrollParent(listRef.current));
+  }, [habits.length]);
+
+  const virtualizer = useVirtualizer({
+    count: habits.length,
+    getScrollElement: () => scrollElement,
+    estimateSize: () => HABIT_ROW_ESTIMATE_PX,
+    overscan: 10,
+    getItemKey: (index) => habits[index]?.id || String(index),
+  });
+
   return (
     <DndContext
       sensors={sensors}
@@ -366,30 +402,43 @@ function SortableHabitListInner({
         items={habits.map(h => h.id || '')}
         strategy={verticalListSortingStrategy}
       >
-        <div>
-          {habits.map((habit) => {
+        <div
+          ref={listRef}
+          className="relative w-full"
+          style={{ height: virtualizer.getTotalSize() }}
+        >
+          {virtualizer.getVirtualItems().map((virtualRow) => {
+            const habit = habits[virtualRow.index];
+            if (!habit) return null;
             const habitId = habit.id || '';
             return (
-              <SortableHabitItem
+              <div
                 key={habitId}
-                habit={habit}
-                getHabitMetricDisplay={getHabitMetricDisplay}
-                getHabitMetricClassName={getHabitMetricClassName}
-                hoveredValue={
-                  scrubberHoveredDate && scrubberHoveredValues
-                    ? scrubberHoveredValues[habitId]
-                    : undefined
-                }
-                isTooltipOpen={activeTooltip === habitId}
-                setActiveTooltip={setActiveTooltip}
-                getHabitMetricStats={getHabitMetricStats}
-                onUpdateHabitDetails={onUpdateHabitDetails}
-                isUpdatingHabit={updatingHabitId === habitId}
-                confirmDelete={confirmDelete}
-                isDeleting={deletingHabit === habitId}
-                isContextSelected={selectedContextHabitId === habitId}
-                onOpenContext={onOpenContext}
-              />
+                data-index={virtualRow.index}
+                ref={virtualizer.measureElement}
+                className="absolute left-0 top-0 w-full"
+                style={{ transform: `translateY(${virtualRow.start}px)` }}
+              >
+                <SortableHabitItem
+                  habit={habit}
+                  getHabitMetricDisplay={getHabitMetricDisplay}
+                  getHabitMetricClassName={getHabitMetricClassName}
+                  hoveredValue={
+                    scrubberHoveredDate && scrubberHoveredValues
+                      ? scrubberHoveredValues[habitId]
+                      : undefined
+                  }
+                  isTooltipOpen={activeTooltip === habitId}
+                  setActiveTooltip={setActiveTooltip}
+                  getHabitMetricStats={getHabitMetricStats}
+                  onUpdateHabitDetails={onUpdateHabitDetails}
+                  isUpdatingHabit={updatingHabitId === habitId}
+                  confirmDelete={confirmDelete}
+                  isDeleting={deletingHabit === habitId}
+                  isContextSelected={selectedContextHabitId === habitId}
+                  onOpenContext={onOpenContext}
+                />
+              </div>
             );
           })}
         </div>

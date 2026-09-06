@@ -5,12 +5,18 @@ Run this after building a signed desktop artifact and before sharing it with bet
 ## Packaged App
 
 - Launch the packaged app from the DMG-installed location, not from a dev build.
-- Confirm the app opens the hosted production UI instead of a localhost URL.
+- Run this checklist on an Apple Silicon Mac; Intel is outside the current supported release scope.
+- Confirm `file` and `shasum -a 256` match the target entries in `binaries/sidecar-lock.json`.
+- Confirm diagnostics report the expected product name, bundle ID, callback scheme, target, executable path, backend base, and channel-specific app-data root.
+- Confirm the app paints from the bundled local Vite SPA (no navigation to `https://desktop.ritualdb.com`, and no `localhost:3000` / `localhost:1420` document URL).
+- Confirm auth, API, and hosted chat fallback still talk to production hosts, not loopback.
 - Confirm the normal browser is blocked from the hosted app and redirected to `/desktop-only`.
 
 ## Auth
 
-- Sign in from the packaged app.
+- Sign in from the packaged app with the app initially closed, then again with it already open.
+- Confirm the browser progresses from pending to consumed to acknowledged.
+- Confirm the custom-scheme callback contains no verifier or Clerk ticket, then prove replay, wrong-channel, wrong-binary, expired, and wrong-protocol callbacks fail without consuming another handoff.
 - Quit and reopen the app.
 - Confirm the session is restored without a sign-in loop.
 
@@ -32,10 +38,21 @@ node scripts/validate-updater-artifacts.mjs --latest https://github.com/NickGard
 
 - From the packaged desktop app, trigger an update check.
 - Confirm the updater does not show a feed/signature error.
+- Repeat manifest validation explicitly with `--platform darwin-aarch64`.
+
+## Watcher and Window QA
+
+- With tracking enabled, confirm watcher readiness precedes PID/RSS and RSS is nonzero.
+- With tracking never enabled or disabled, confirm PID/RSS are null with a reason—not zero.
+- In QA, confirm Cmd+R and View → Reload Ritual reload only the focused main WKWebView.
+- Run `npm run desktop:diagnostics -- --json`; require `ignoresMouseEvents=false`, `windowLevel=0`, and `hitTestable=true`.
+- Capture the declared opaque/glass/hit-test points with `npm run desktop:qa:capture -- --channel qa`; require fully opaque main/hit samples and a window-title acknowledgement from the real WKWebView click target.
+- Confirm the production build has no Reload Ritual menu item or handler.
 
 ## Core Product
 
 - Load dashboard, analytics, chat, and settings once each.
 - Confirm watcher/device settings render.
 - Confirm desktop-only search/activity surfaces render without auth or API errors.
+- Confirm chat: local sidecar on `127.0.0.1:8787` when Node is on the machine; hosted `/api/chat/stream` when it is not. Local first paint must still succeed either way.
 - Quit and reopen the app one more time to confirm restart persistence.

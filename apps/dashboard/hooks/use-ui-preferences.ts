@@ -1,10 +1,10 @@
 'use client';
 
 import { useCallback } from 'react';
-import { useAuth, useUser } from '@clerk/nextjs';
+import { useAuth, useUser } from '@/lib/desktop-session';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
+import { apiOperationWithAuth } from '@/lib/api/client';
+import type { CalendarPreferences } from '@ritual/shared-contracts';
 const LOCAL_STORAGE_KEY = 'ritual:ui-preferences:v1';
 const QUERY_KEY = ['ui-preferences'];
 
@@ -20,6 +20,7 @@ function isOverviewViewMode(value: unknown): value is OverviewViewMode {
 export interface UIPreferences {
   habit_text_color: string | null;
   overview_view_mode: OverviewViewMode | null;
+  calendar_preferences: CalendarPreferences | null;
 }
 
 function readCachedPreferences(): UIPreferences | undefined {
@@ -35,6 +36,10 @@ function readCachedPreferences(): UIPreferences | undefined {
       overview_view_mode: isOverviewViewMode(parsed.overview_view_mode)
         ? parsed.overview_view_mode
         : null,
+      calendar_preferences:
+        parsed.calendar_preferences && typeof parsed.calendar_preferences === 'object'
+          ? parsed.calendar_preferences as CalendarPreferences
+          : null,
     };
   } catch {
     return undefined;
@@ -58,21 +63,19 @@ export function useUIPreferences() {
   const query = useQuery<UIPreferences>({
     queryKey: [...QUERY_KEY, user?.id],
     queryFn: async () => {
-      const token = await getToken();
-      if (!token) throw new Error('Missing auth token');
-      const response = await fetch(`${API_BASE_URL}/api/ui-preferences`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!response.ok) {
-        throw new Error(`Failed to load UI preferences (${response.status})`);
-      }
-      const data = await response.json();
+      const data = await apiOperationWithAuth(
+        'get_ui_preferences_api_ui_preferences_get',
+        getToken,
+        {},
+        user?.id,
+      ) as { habit_text_color?: string | null; overview_view_mode?: unknown; calendar_preferences?: CalendarPreferences | null };
       const prefs: UIPreferences = {
         habit_text_color:
           typeof data?.habit_text_color === 'string' ? data.habit_text_color : null,
         overview_view_mode: isOverviewViewMode(data?.overview_view_mode)
           ? data.overview_view_mode
           : null,
+        calendar_preferences: data?.calendar_preferences ?? null,
       };
       writeCachedPreferences(prefs);
       return prefs;
@@ -85,10 +88,11 @@ export function useUIPreferences() {
   const habitTextColor = query.data?.habit_text_color ?? DEFAULT_HABIT_TEXT_COLOR;
   const overviewViewMode: OverviewViewMode =
     query.data?.overview_view_mode ?? DEFAULT_OVERVIEW_VIEW_MODE;
+  const calendarPreferences = query.data?.calendar_preferences ?? null;
 
   const setHabitTextColor = useCallback(
     async (color: string | null) => {
-      const previous = query.data ?? { habit_text_color: null, overview_view_mode: null };
+      const previous = query.data ?? { habit_text_color: null, overview_view_mode: null, calendar_preferences: null };
       const next: UIPreferences = {
         ...previous,
         habit_text_color: color,
@@ -96,21 +100,16 @@ export function useUIPreferences() {
       queryClient.setQueryData<UIPreferences>([...QUERY_KEY, user?.id], next);
       writeCachedPreferences(next);
 
-      const token = await getToken();
-      if (!token) return;
-
-      const response = await fetch(`${API_BASE_URL}/api/ui-preferences`, {
-        method: 'PATCH',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ habit_text_color: color }),
-      });
-
-      if (!response.ok) {
+      try {
+        await apiOperationWithAuth(
+          'update_ui_preferences_api_ui_preferences_patch',
+          getToken,
+          { body: { habit_text_color: color } },
+          user?.id,
+        );
+      } catch {
         queryClient.invalidateQueries({ queryKey: [...QUERY_KEY, user?.id] });
-        throw new Error(`Failed to save UI preferences (${response.status})`);
+        throw new Error('Failed to save UI preferences');
       }
     },
     [getToken, queryClient, query.data, user?.id],
@@ -118,7 +117,7 @@ export function useUIPreferences() {
 
   const setOverviewViewMode = useCallback(
     async (mode: OverviewViewMode) => {
-      const previous = query.data ?? { habit_text_color: null, overview_view_mode: null };
+      const previous = query.data ?? { habit_text_color: null, overview_view_mode: null, calendar_preferences: null };
       const next: UIPreferences = {
         ...previous,
         overview_view_mode: mode,
@@ -126,21 +125,38 @@ export function useUIPreferences() {
       queryClient.setQueryData<UIPreferences>([...QUERY_KEY, user?.id], next);
       writeCachedPreferences(next);
 
-      const token = await getToken();
-      if (!token) return;
-
-      const response = await fetch(`${API_BASE_URL}/api/ui-preferences`, {
-        method: 'PATCH',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ overview_view_mode: mode }),
-      });
-
-      if (!response.ok) {
+      try {
+        await apiOperationWithAuth(
+          'update_ui_preferences_api_ui_preferences_patch',
+          getToken,
+          { body: { overview_view_mode: mode } },
+          user?.id,
+        );
+      } catch {
         queryClient.invalidateQueries({ queryKey: [...QUERY_KEY, user?.id] });
-        throw new Error(`Failed to save UI preferences (${response.status})`);
+        throw new Error('Failed to save UI preferences');
+      }
+    },
+    [getToken, queryClient, query.data, user?.id],
+  );
+
+  const setCalendarPreferences = useCallback(
+    async (preferences: CalendarPreferences) => {
+      const previous = query.data ?? { habit_text_color: null, overview_view_mode: null, calendar_preferences: null };
+      const next: UIPreferences = { ...previous, calendar_preferences: preferences };
+      queryClient.setQueryData<UIPreferences>([...QUERY_KEY, user?.id], next);
+      writeCachedPreferences(next);
+
+      try {
+        await apiOperationWithAuth(
+          'update_ui_preferences_api_ui_preferences_patch',
+          getToken,
+          { body: { calendar_preferences: preferences } },
+          user?.id,
+        );
+      } catch {
+        queryClient.invalidateQueries({ queryKey: [...QUERY_KEY, user?.id] });
+        throw new Error('Failed to save calendar preferences');
       }
     },
     [getToken, queryClient, query.data, user?.id],
@@ -151,6 +167,8 @@ export function useUIPreferences() {
     setHabitTextColor,
     overviewViewMode,
     setOverviewViewMode,
+    calendarPreferences,
+    setCalendarPreferences,
     isLoading: query.isLoading,
   };
 }

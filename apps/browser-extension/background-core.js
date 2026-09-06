@@ -39,32 +39,60 @@ export function isSameHeartbeat(a, b) {
   );
 }
 
-export async function replayQueuedEvents(offlineQueue, sendFn) {
-  const remaining = [];
-  let replayedCount = 0;
+export const OUTBOX_VERSION = 1;
 
-  for (let i = 0; i < offlineQueue.length; i++) {
-    const event = offlineQueue[i];
-    const sent = await sendFn(event);
+export function createSerializedExecutor(onError = () => {}) {
+  let tail = Promise.resolve();
+  return (operation) => {
+    const result = tail.then(operation, operation);
+    tail = result.catch(onError);
+    return result;
+  };
+}
 
-    if (!sent) {
-      for (let j = i; j < offlineQueue.length; j++) {
-        remaining.push(offlineQueue[j]);
-      }
-      return {
-        replayedCount,
-        remaining,
-        failedAt: i,
-      };
-    }
-
-    replayedCount += 1;
+export function hydrateOutboxState(storedState, legacyQueue = []) {
+  if (
+    storedState?.version === OUTBOX_VERSION &&
+    Array.isArray(storedState.pending)
+  ) {
+    return {
+      version: OUTBOX_VERSION,
+      pending: storedState.pending,
+      reconnectAttempts: Number.isFinite(storedState.reconnectAttempts)
+        ? Math.max(0, storedState.reconnectAttempts)
+        : 0,
+      retryAt: Number.isFinite(storedState.retryAt)
+        ? Math.max(0, storedState.retryAt)
+        : 0,
+    };
   }
 
   return {
-    replayedCount,
-    remaining,
-    failedAt: null,
+    version: OUTBOX_VERSION,
+    pending: Array.isArray(legacyQueue) ? legacyQueue : [],
+    reconnectAttempts: 0,
+    retryAt: 0,
+  };
+}
+
+export function enqueueOutboxEvent(state, heartbeat, maxPending, queuedAt = Date.now()) {
+  const pending = [...state.pending];
+  const last = pending[pending.length - 1];
+
+  if (!last || !isSameHeartbeat(last, heartbeat)) {
+    pending.push({ ...heartbeat, queued_at: queuedAt });
+  }
+
+  return {
+    ...state,
+    pending: pending.slice(-maxPending),
+  };
+}
+
+export function acknowledgeOutboxHead(state) {
+  return {
+    ...state,
+    pending: state.pending.slice(1),
   };
 }
 

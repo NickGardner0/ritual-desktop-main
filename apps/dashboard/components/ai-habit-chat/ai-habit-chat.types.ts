@@ -4,6 +4,7 @@ export type InputMode = 'log' | 'chat';
 
 export interface AIHabitChatProps {
   onHabitUpdate?: (habitData: any) => void;
+  onImportData: () => void;
 }
 
 export interface ScreenshotPreview {

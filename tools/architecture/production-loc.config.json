@@ -1,0 +1,89 @@
+{
+  "methodVersion": 1,
+  "tokeiVersion": "14.0.0",
+  "description": "Canonical authored-production LOC buckets derived from the original Ritual versus Berd audit. Only git-tracked files are measured.",
+  "commonExcludes": [
+    "(^|/)(tests?|__tests__|fixtures?|snapshots?|coverage|node_modules|\\.next|dist|target|generated|gen)(/|$)",
+    "(^|/)__snapshots__(/|$)",
+    "\\.(test|spec)\\.[^.]+$",
+    "(^|/)package-lock\\.json$",
+    "(^|/)Cargo\\.lock$"
+  ],
+  "buckets": [
+    {
+      "id": "dashboard",
+      "label": "Dashboard production",
+      "include": ["^apps/dashboard/"],
+      "exclude": ["^apps/dashboard/(scripts|public)/", "^apps/dashboard/lib/api/generated/"],
+      "extensions": [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".css"]
+    },
+    {
+      "id": "shared_packages",
+      "label": "Shared packages",
+      "include": ["^packages/[^/]+/src/"],
+      "exclude": [],
+      "extensions": [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".css"]
+    },
+    {
+      "id": "fastapi",
+      "label": "FastAPI application",
+      "include": ["^apps/backend/"],
+      "exclude": ["^apps/backend/(scripts|migrations|devtools)/"],
+      "extensions": [".py"]
+    },
+    {
+      "id": "desktop_rust",
+      "label": "Rust desktop, watcher, and ritual-db",
+      "include": ["^apps/desktop/src-tauri/"],
+      "exclude": [],
+      "extensions": [".rs"]
+    },
+    {
+      "id": "desktop_shell",
+      "label": "Desktop hosted-shell bootstrap",
+      "include": ["^apps/desktop/src/"],
+      "exclude": [],
+      "extensions": [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".css"]
+    },
+    {
+      "id": "desktop_ui",
+      "label": "Desktop local Vite SPA",
+      "include": ["^apps/desktop-ui/src/"],
+      "exclude": [],
+      "extensions": [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".css"]
+    },
+    {
+      "id": "browser_extension",
+      "label": "Browser extension",
+      "include": ["^apps/browser-extension/"],
+      "exclude": [],
+      "extensions": [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".html", ".css"]
+    },
+    {
+      "id": "tinybird",
+      "label": "Tinybird authored DSL",
+      "include": ["^apps/tinybird/(datasources|pipes)/"],
+      "exclude": [],
+      "extensions": [".datasource", ".pipe"],
+      "counter": "nonblank_noncomment"
+    }
+  ],
+  "historicalBaselines": [
+    {
+      "label": "Original architecture audit",
+      "lines": 192474,
+      "provenance": "Dirty source snapshot documented by RITUAL_VS_BERD_ARCHITECTURE_AUDIT.md"
+    },
+    {
+      "label": "Dirty feature-tree results claim",
+      "lines": 183970,
+      "provenance": "Uncommitted codex/tasks-routines-mvp snapshot; not a ship-branch result"
+    },
+    {
+      "label": "Release overview estimate",
+      "lines": 192600,
+      "provenance": "Manual audit-comparable estimate; replaced by this executable baseline"
+    }
+  ],
+  "targetBand": { "minimum": 180000, "maximum": 185000 }
+}

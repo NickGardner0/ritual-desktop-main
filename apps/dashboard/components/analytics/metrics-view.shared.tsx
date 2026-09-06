@@ -7,81 +7,20 @@
 
 'use client';
 
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React from 'react';
 import dynamic from 'next/dynamic';
-import { useAuth, useUser } from '@clerk/nextjs';
-import {
-  Copy,
-  Camera,
-  ChevronDown,
-  Download,
-  X,
-} from 'lucide-react';
-import {
-  DndContext,
-  closestCenter,
-  KeyboardSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from '@dnd-kit/core';
-import {
-  arrayMove,
-  SortableContext,
-  sortableKeyboardCoordinates,
-  useSortable,
-  rectSortingStrategy,
-} from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
 import type { DateRange } from 'react-day-picker';
-import { format, parseISO, startOfDay, differenceInDays, subDays, eachDayOfInterval } from 'date-fns';
-import { analyticsApi } from '@/lib/services/analytics-api';
-import { useAnalyticsFiltersOptional } from './analytics-filter-context';
-import { useHabits } from '@/contexts/HabitsContext';
+import { useSortable } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import { startOfDay, differenceInDays, subDays } from 'date-fns';
 import type { RangeKey } from '@/components/charts/PerplexityExpandedHabitChart';
-import { habitToFinanceSeries } from '@/lib/charts/habitToFinanceSeries';
-import { BrailleSpinner } from '@/components/ui/braille-spinner';
-import { ExpandedMetricCard } from '@/components/metrics/ExpandedMetricCard';
-import { MetricsInitialSection } from '@/components/analytics/metrics-initial-section';
-import type { RangeOption } from '@/components/metrics/RangeSegmentedControl';
-import { isTauri } from '@/lib/tauri-utils';
-import { computeMeaningfulPercentChange } from '@/lib/analytics-change';
-import {
-  COMPUTER_HABIT_DISPLAY_NAME,
-  getHabitDisplayName,
-  isComputerHabitName,
-} from '@/lib/computer-time-habit';
-import {
-  buildComputerActivityMetricCardData,
-  buildHabitMetricCardData,
-  buildMetricStreakData,
-  buildMetricsBarData,
-  formatMetricBarValue,
-  getMetricCategoryForHabit,
-  inferHigherIsBetter,
-  mapDailyBreakdownRows,
-  type MetricCardData,
-  type MetricDailyRow,
-  type MetricHabitLike,
-} from '@/components/analytics/metrics-derived';
+import type { MetricDailyRow, MetricSummaryLike } from '@/components/analytics/metrics-derived';
 import {
   buildWearableDailyRows,
-  getWearableDateRange,
   getWearableMetricType,
-  getWearableProviderForHabit,
-  isWearableBackedHabit,
-  summarizeWearableDailyRows,
   type WearableDailyTotal,
   type WearableSeriesPoint,
 } from '@/lib/wearables-dashboard';
-import type { HabitSparkSource } from '@/components/analytics/habit-mini-charts-section';
-import {
-  auditLocalStorage,
-  perfError,
-  perfInfo,
-  startPerfTimer,
-} from '@/lib/perf-debug';
 import type { TimeRangePreset } from '@/lib/computerActivity/contracts';
 import {
   Select,
@@ -89,8 +28,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select';
-import { useComputerSnapshotQuery } from '@/hooks/use-computer-snapshot-query';
+} from '@ritual/ui/select';
 
 export const DateRangePicker = dynamic(
   () => import('@/components/date-range-picker').then(m => ({ default: m.DateRangePicker })),
@@ -108,7 +46,7 @@ export const PerplexityExpandedHabitChart = dynamic(
 );
 
 export const ComputerActivitySection = dynamic(
-  () => import('@/components/analytics/computer-activity').then(m => ({ default: m.ComputerActivitySection })),
+  () => import('@/components/computer-activity/ComputerActivityPanel').then(m => ({ default: m.ComputerActivityPanel })),
   { ssr: false }
 );
 
@@ -121,13 +59,17 @@ export type HabitData = {
   category: string;
   icon?: string;
   unit_type?: string;
-  [key: string]: any;
+  [key: string]: unknown;
 };
 
 export type ChartDataPoint = {
   value: number;
-  [key: string]: any;
+  [key: string]: unknown;
 };
+
+export type MetricsRowsByHabit = Record<string, MetricDailyRow[]>;
+export type MetricsSummaryByHabit = Record<string, MetricSummaryLike>;
+export type MetricsSyncContext = Record<string, unknown>;
 
 export const COMPUTER_ACTIVITY_CARD_ID = '__computer_activity__';
 export const CARD_ORDER_KEY = 'ritual-metric-card-order';
@@ -494,7 +436,7 @@ export function buildWearableMetricSeriesRows(
   }));
 }
 
-export function hasUsableMetricSummary(summary?: Record<string, any> | null): boolean {
+export function hasUsableMetricSummary(summary?: MetricSummaryLike | null): boolean {
   if (!summary) return false;
 
   const totalValue = Number(summary.total_value ?? 0);
@@ -524,10 +466,10 @@ export interface MetricsViewProps {
   externalDateRange?: DateRange | undefined;
   onDateRangeChange?: (range: DateRange | undefined) => void;
   hideControls?: boolean;
-  initialAnalyticsData?: Record<string, any[]>;
-  initialSummaryMetrics?: Record<string, any>;
-  initialBarListAnalyticsData?: Record<string, any[]>;
-  initialBarListSummaryMetrics?: Record<string, any>;
+  initialAnalyticsData?: MetricsRowsByHabit;
+  initialSummaryMetrics?: MetricsSummaryByHabit;
+  initialBarListAnalyticsData?: MetricsRowsByHabit;
+  initialBarListSummaryMetrics?: MetricsSummaryByHabit;
 }
 
 
@@ -558,7 +500,7 @@ export const CompareSelect = ({
     <SelectTrigger className="h-[30px] min-w-[80px] border-[rgba(39,37,30,0.07)] bg-white px-2 text-[12px] font-medium tracking-[-0.4px] text-[rgba(39,37,30,0.65)] transition-colors hover:bg-[rgba(39,37,30,0.02)] hover:text-[#27251E] focus:outline-none focus:ring-0">
       <SelectValue placeholder={placeholder} />
     </SelectTrigger>
-    <SelectContent align="end" className="border-[rgba(39,37,30,0.07)] bg-white shadow-[0_12px_24px_rgba(39,37,30,0.12)]">
+    <SelectContent align="end">
       <SelectItem value={COMPARE_NONE_VALUE} className="text-muted-foreground">
         None
       </SelectItem>

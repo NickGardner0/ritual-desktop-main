@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en" class="desktop">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ritual</title>
+    <!-- FullCalendar injects rules through this sheet. A parser-created style
+         guarantees WebKit exposes CSSStyleSheet before its lazy module runs. -->
+    <style data-fullcalendar></style>
+    <style>
+      html, body, #root {
+        height: 100%;
+        margin: 0;
+        background: #fefefe;
+      }
+      html.dark, html.dark body, html.dark #root {
+        background: #111111;
+      }
+      html[data-main-glass="1"],
+      html[data-main-glass="1"] body,
+      html[data-main-glass="1"] #root {
+        background: transparent;
+      }
+      /* Chrome that remains visible if the JS bundle is delayed. */
+      body::before {
+        content: "";
+        position: fixed;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        width: 76px;
+        background: #f7f8f5;
+        pointer-events: none;
+        z-index: 0;
+      }
+      html.dark body::before {
+        background: #101011;
+      }
+      html[data-main-glass="1"] body::before,
+      html[data-settings-window] body::before,
+      html[data-voice-hud-window] body::before,
+      body:has(.welcome-page)::before,
+      body:has(.ritual-settings-window)::before,
+      body:has(.voice-hud-shell)::before {
+        display: none;
+      }
+      html[data-voice-hud-window],
+      html[data-voice-hud-window] body,
+      html[data-voice-hud-window] #root {
+        background: transparent;
+      }
+      #root {
+        position: relative;
+        z-index: 1;
+      }
+    </style>
+    <script>
+      (function () {
+        document.documentElement.classList.add('desktop');
+        document.documentElement.style.background = '#fefefe';
+        document.documentElement.dataset.theme = 'light';
+        try {
+          var stored = localStorage.getItem('theme');
+          if (stored === 'dark') {
+            document.documentElement.classList.add('dark');
+            document.documentElement.style.background = '#111111';
+          }
+        } catch (error) {}
+        try {
+          var params = new URLSearchParams(window.location.search);
+          if (params.get('ritual_settings_window') === '1') {
+            document.documentElement.dataset.settingsWindow = '1';
+          }
+          if (params.get('ritual_voice_hud_window') === '1') {
+            document.documentElement.dataset.voiceHudWindow = '1';
+            document.documentElement.style.background = 'transparent';
+          }
+          if (
+            params.get('ritual_main_glass') === '1' ||
+            document.documentElement.dataset.mainGlass === '1'
+          ) {
+            document.documentElement.dataset.mainGlass = '1';
+            document.documentElement.style.background = 'transparent';
+          }
+          if (
+            params.get('ritual_settings_window') !== '1' &&
+            params.get('ritual_voice_hud_window') !== '1' &&
+            params.get('ritual_sidebar_window') !== '1'
+          ) {
+            var internals = window.__TAURI_INTERNALS__;
+            if (internals && typeof internals.invoke === 'function') {
+              internals.invoke('show_main_window');
+            }
+          }
+        } catch (error) {}
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

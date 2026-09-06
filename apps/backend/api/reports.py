@@ -17,7 +17,7 @@ from schemas.reports import (
     HabitReportScheduleRead,
     HabitReportScheduleUpdate,
 )
-from services.reports_service import reports_service
+from services.reports_service import ReportScheduleValidationError, reports_service
 
 
 def create_reports_router(
@@ -59,6 +59,8 @@ def create_reports_router(
                 schedule_id=schedule_id,
                 payload=payload,
             )
+        except ReportScheduleValidationError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 

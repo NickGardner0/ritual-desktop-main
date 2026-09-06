@@ -2,6 +2,13 @@
 
 from .common import *
 from .capabilities import PROVIDER_PRIORITY_RANKS, SOURCE_KIND_PRIORITY_RANKS
+from schemas.wearables_unified import (
+    WearableDailyMetricValueRead,
+    WearableDailyTotalRead,
+    WearableSeriesPointRead,
+    WearableSourceSummaryRead,
+    WearableTimelineItemRead,
+)
 
 class WearableQueryService:
     METRIC_TYPE_ALIASES = {
@@ -90,8 +97,8 @@ class WearableQueryService:
         return f"{log.date}T00:00:00"
 
     @classmethod
-    def _timeline_sort_key(cls, item: Dict[str, Any]) -> Tuple[str, str]:
-        return (item.get("timestamp") or "", item.get("id") or "")
+    def _timeline_sort_key(cls, item: WearableTimelineItemRead) -> Tuple[str, str]:
+        return (item.timestamp or "", item.id or "")
 
     @classmethod
     def _aggregate_metric_values(cls, metric_type: str, values: List[float]) -> Tuple[Optional[float], Optional[str]]:
@@ -122,7 +129,7 @@ class WearableQueryService:
         return daily_rows or non_daily_rows
 
     @staticmethod
-    def _serialize_source(source: Optional[WearableSourceDB]) -> Optional[Dict[str, Any]]:
+    def _serialize_source(source: Optional[WearableSourceDB]) -> Optional[WearableSourceSummaryRead]:
         if source is None:
             return None
         metadata = None
@@ -131,18 +138,18 @@ class WearableQueryService:
                 metadata = json.loads(source.metadata_json)
             except Exception:
                 metadata = {"raw": source.metadata_json}
-        return {
-            "id": source.id,
-            "provider": source.provider,
-            "source_kind": source.source_kind,
-            "device_name": source.device_name,
-            "device_model": source.device_model,
-            "device_type": source.device_type,
-            "platform": source.platform,
-            "priority_rank": source.priority_rank,
-            "source_bundle_id": source.source_bundle_id,
-            "metadata": metadata,
-        }
+        return WearableSourceSummaryRead(
+            id=source.id,
+            provider=source.provider,
+            source_kind=source.source_kind,
+            device_name=source.device_name,
+            device_model=source.device_model,
+            device_type=source.device_type,
+            platform=source.platform,
+            priority_rank=source.priority_rank,
+            source_bundle_id=source.source_bundle_id,
+            metadata=metadata,
+        )
 
     async def _source_map(
         self,
@@ -188,7 +195,7 @@ class WearableQueryService:
         grouped_rows: Dict[str, List[Any]],
         preferred_provider: Optional[str],
         source_map: Optional[Dict[str, WearableSourceDB]] = None,
-    ) -> Tuple[List[Any], Optional[str], Optional[Dict[str, Any]]]:
+    ) -> Tuple[List[Any], Optional[str], Optional[WearableSourceSummaryRead]]:
         source_map = source_map or {}
         if preferred_provider and preferred_provider in grouped_rows:
             ranked_rows = sorted(
@@ -331,7 +338,7 @@ class WearableQueryService:
         include_manual_logs: bool = True,
         include_deleted: bool = False,
         limit: int = 200,
-    ) -> Tuple[List[Dict[str, Any]], Optional[str]]:
+    ) -> Tuple[List[WearableTimelineItemRead], Optional[str]]:
         async with get_db_session() as session:
             query_limit = max(limit * 2, 200)
             provider_filter = [item for item in (providers or []) if item]
@@ -373,34 +380,34 @@ class WearableQueryService:
                 source_ids=[sample.source_id for sample in samples] + [event.source_id for event in events],
             )
 
-            items: List[Dict[str, Any]] = []
+            items: List[WearableTimelineItemRead] = []
 
             for sample in samples:
                 timestamp = self._isoformat(sample.recorded_at or sample.start_time or sample.end_time)
                 if not timestamp:
                     continue
                 items.append(
-                    {
-                        "id": sample.id,
-                        "kind": "wearable_sample",
-                        "provider": sample.provider,
-                        "metric_type": sample.metric_type,
-                        "title": sample.metric_type.replace("_", " ").title(),
-                        "timestamp": timestamp,
-                        "start_time": self._isoformat(sample.start_time),
-                        "end_time": self._isoformat(sample.end_time),
-                        "attributed_date": sample.attributed_date,
-                        "value": sample.value,
-                        "unit": sample.unit,
-                        "aggregation_kind": sample.aggregation_kind,
-                        "rollup_level": sample.rollup_level,
-                        "rollup_window_minutes": sample.rollup_window_minutes,
-                        "source_device_name": (
+                    WearableTimelineItemRead(
+                        id=sample.id,
+                        kind="wearable_sample",
+                        provider=sample.provider,
+                        metric_type=sample.metric_type,
+                        title=sample.metric_type.replace("_", " ").title(),
+                        timestamp=timestamp,
+                        start_time=self._isoformat(sample.start_time),
+                        end_time=self._isoformat(sample.end_time),
+                        attributed_date=sample.attributed_date,
+                        value=sample.value,
+                        unit=sample.unit,
+                        aggregation_kind=sample.aggregation_kind,
+                        rollup_level=sample.rollup_level,
+                        rollup_window_minutes=sample.rollup_window_minutes,
+                        source_device_name=(
                             source_map.get(sample.source_id).device_name
                             if sample.source_id and source_map.get(sample.source_id)
                             else self._source_device_name_from_sample(sample)
                         ),
-                    }
+                    )
                 )
 
             for event in events:
@@ -408,26 +415,26 @@ class WearableQueryService:
                 if not timestamp:
                     continue
                 items.append(
-                    {
-                        "id": event.id,
-                        "kind": "wearable_event",
-                        "provider": event.provider,
-                        "metric_type": event.event_type,
-                        "event_type": event.event_type,
-                        "title": event.title or event.event_type.replace("_", " ").title(),
-                        "timestamp": timestamp,
-                        "start_time": self._isoformat(event.start_time),
-                        "end_time": self._isoformat(event.end_time),
-                        "attributed_date": event.attributed_date,
-                        "value": event.summary_value,
-                        "unit": event.summary_unit,
-                        "aggregation_kind": "interval",
-                        "source_device_name": (
+                    WearableTimelineItemRead(
+                        id=event.id,
+                        kind="wearable_event",
+                        provider=event.provider,
+                        metric_type=event.event_type,
+                        event_type=event.event_type,
+                        title=event.title or event.event_type.replace("_", " ").title(),
+                        timestamp=timestamp,
+                        start_time=self._isoformat(event.start_time),
+                        end_time=self._isoformat(event.end_time),
+                        attributed_date=event.attributed_date,
+                        value=event.summary_value,
+                        unit=event.summary_unit,
+                        aggregation_kind="interval",
+                        source_device_name=(
                             source_map.get(event.source_id).device_name
                             if event.source_id and source_map.get(event.source_id)
                             else self._source_device_name_from_event(event)
                         ),
-                    }
+                    )
                 )
 
             if include_manual_logs:
@@ -445,28 +452,27 @@ class WearableQueryService:
                 logs = list((await session.execute(log_query)).scalars().all())
                 for log in logs:
                     items.append(
-                        {
-                            "id": log.id,
-                            "kind": "habit_log",
-                            "habit_id": log.habit_id,
-                            "habit_name": log.habit_name,
-                            "title": log.habit_name,
-                            "timestamp": self._parse_habit_log_completed_at(log),
-                            "start_time": log.completed_at,
-                            "end_time": log.completed_at,
-                            "attributed_date": log.date,
-                            "value": log.amount,
-                            "unit": None,
-                            "status": log.status,
-                            "notes": log.notes,
-                        }
+                        WearableTimelineItemRead(
+                            id=log.id,
+                            kind="habit_log",
+                            habit_id=log.habit_id,
+                            habit_name=log.habit_name,
+                            title=log.habit_name,
+                            timestamp=self._parse_habit_log_completed_at(log),
+                            start_time=log.completed_at,
+                            end_time=log.completed_at,
+                            attributed_date=log.date,
+                            value=log.amount,
+                            status=log.status,
+                            notes=log.notes,
+                        )
                     )
 
             items.sort(key=self._timeline_sort_key, reverse=True)
             next_cursor = None
             if len(items) > limit:
                 trailing_item = items[limit]
-                next_cursor = f"{trailing_item['timestamp']}|{trailing_item['id']}"
+                next_cursor = f"{trailing_item.timestamp}|{trailing_item.id}"
             return items[:limit], next_cursor
 
     async def get_series(
@@ -479,7 +485,7 @@ class WearableQueryService:
         end_time: Optional[datetime] = None,
         resolution: str = "raw",
         limit: int = 2000,
-    ) -> List[Dict[str, Any]]:
+    ) -> List[WearableSeriesPointRead]:
         async with get_db_session() as session:
             metric_type = self._canonical_metric_type(metric_type) or metric_type
             preferred_provider_by_metric = await self._preferred_provider_by_metric(session, user_id=user_id)
@@ -493,27 +499,27 @@ class WearableQueryService:
                     start_date=(start_time or datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%d"),
                     end_date=(end_time or datetime.now(timezone.utc)).strftime("%Y-%m-%d"),
                 )
-                points: List[Dict[str, Any]] = []
+                points: List[WearableSeriesPointRead] = []
                 for item in totals:
-                    metric_payload = item["metrics"].get(metric_type)
+                    metric_payload = item.metrics.get(metric_type)
                     if not metric_payload:
                         continue
                     points.append(
-                        {
-                            "timestamp": item["date"],
-                            "start_time": item["date"],
-                            "end_time": item["date"],
-                            "value": metric_payload["value"],
-                            "unit": metric_payload.get("unit"),
-                            "provider": metric_payload.get("provider"),
-                            "metric_type": metric_type,
-                            "aggregation_kind": metric_payload.get("aggregation"),
-                            "rollup_level": "daily",
-                            "rollup_window_minutes": 1440,
-                            "attributed_date": item["date"],
-                            "source_device_name": None,
-                            "selected_source": metric_payload.get("selected_source"),
-                        }
+                        WearableSeriesPointRead(
+                            timestamp=item.date,
+                            start_time=item.date,
+                            end_time=item.date,
+                            value=metric_payload.value,
+                            unit=metric_payload.unit,
+                            provider=metric_payload.provider,
+                            metric_type=metric_type,
+                            aggregation_kind=metric_payload.aggregation,
+                            rollup_level="daily",
+                            rollup_window_minutes=1440,
+                            attributed_date=item.date,
+                            source_device_name=None,
+                            selected_source=metric_payload.selected_source,
+                        )
                     )
                 return points
 
@@ -563,25 +569,25 @@ class WearableQueryService:
                     source_map,
                 )
                 return [
-                    {
-                        "timestamp": self._isoformat(sample.recorded_at or sample.start_time or sample.end_time),
-                        "start_time": self._isoformat(sample.start_time),
-                        "end_time": self._isoformat(sample.end_time),
-                        "value": sample.value,
-                        "unit": sample.unit,
-                        "provider": selected_provider or sample.provider,
-                        "metric_type": sample.metric_type,
-                        "aggregation_kind": sample.aggregation_kind,
-                        "rollup_level": sample.rollup_level,
-                        "rollup_window_minutes": sample.rollup_window_minutes,
-                        "attributed_date": sample.attributed_date,
-                        "source_device_name": (
+                    WearableSeriesPointRead(
+                        timestamp=self._isoformat(sample.recorded_at or sample.start_time or sample.end_time) or "",
+                        start_time=self._isoformat(sample.start_time),
+                        end_time=self._isoformat(sample.end_time),
+                        value=sample.value,
+                        unit=sample.unit,
+                        provider=selected_provider or sample.provider,
+                        metric_type=sample.metric_type,
+                        aggregation_kind=sample.aggregation_kind,
+                        rollup_level=sample.rollup_level,
+                        rollup_window_minutes=sample.rollup_window_minutes,
+                        attributed_date=sample.attributed_date,
+                        source_device_name=(
                             source_map.get(sample.source_id).device_name
                             if sample.source_id and source_map.get(sample.source_id)
                             else self._source_device_name_from_sample(sample)
                         ),
-                        "selected_source": selected_source,
-                    }
+                        selected_source=selected_source,
+                    )
                     for sample in selected_rows
                     if sample.recorded_at or sample.start_time or sample.end_time
                 ]
@@ -613,25 +619,25 @@ class WearableQueryService:
                 source_map,
             )
             return [
-                {
-                    "timestamp": self._isoformat(event.start_time),
-                    "start_time": self._isoformat(event.start_time),
-                    "end_time": self._isoformat(event.end_time),
-                    "value": float(event.summary_value or 0.0),
-                    "unit": event.summary_unit,
-                    "provider": selected_provider or event.provider,
-                    "metric_type": event.event_type,
-                    "aggregation_kind": "interval",
-                    "rollup_level": "raw",
-                    "rollup_window_minutes": None,
-                    "attributed_date": event.attributed_date,
-                    "source_device_name": (
+                WearableSeriesPointRead(
+                    timestamp=self._isoformat(event.start_time) or "",
+                    start_time=self._isoformat(event.start_time),
+                    end_time=self._isoformat(event.end_time),
+                    value=float(event.summary_value or 0.0),
+                    unit=event.summary_unit,
+                    provider=selected_provider or event.provider,
+                    metric_type=event.event_type,
+                    aggregation_kind="interval",
+                    rollup_level="raw",
+                    rollup_window_minutes=None,
+                    attributed_date=event.attributed_date,
+                    source_device_name=(
                         source_map.get(event.source_id).device_name
                         if event.source_id and source_map.get(event.source_id)
                         else self._source_device_name_from_event(event)
                     ),
-                    "selected_source": selected_source,
-                }
+                    selected_source=selected_source,
+                )
                 for event in selected_rows
             ]
 
@@ -704,7 +710,7 @@ class WearableQueryService:
         providers: Optional[List[str]] = None,
         start_date: str,
         end_date: str,
-    ) -> List[Dict[str, Any]]:
+    ) -> List[WearableDailyTotalRead]:
         async with get_db_session() as session:
             preferred_provider_by_metric = await self._preferred_provider_by_metric(session, user_id=user_id)
             provider_filter = [item for item in (providers or []) if item]
@@ -788,7 +794,7 @@ class WearableQueryService:
         metric_keys = set((date_value, metric_type) for date_value, metric_type, _provider in grouped_samples.keys())
         metric_keys.update((date_value, metric_type) for date_value, metric_type, _provider in grouped_events.keys())
 
-        per_day: Dict[str, Dict[str, Dict[str, Any]]] = {}
+        per_day: Dict[str, Dict[str, WearableDailyMetricValueRead]] = {}
         for date_value, metric_type in sorted(metric_keys):
             if not date_value:
                 continue
@@ -824,16 +830,16 @@ class WearableQueryService:
             if value is None:
                 continue
 
-            per_day.setdefault(date_value, {})[metric_type] = {
-                "value": value,
-                "unit": unit,
-                "aggregation": aggregation_label,
-                "provider": provider_name,
-                "selected_source": None,
-            }
+            per_day.setdefault(date_value, {})[metric_type] = WearableDailyMetricValueRead(
+                value=value,
+                unit=unit,
+                aggregation=aggregation_label,
+                provider=provider_name,
+                selected_source=None,
+            )
 
         return [
-            {"date": date_value, "metrics": metrics}
+            WearableDailyTotalRead(date=date_value, metrics=metrics)
             for date_value, metrics in sorted(per_day.items(), key=lambda item: item[0])
         ]
 
@@ -845,7 +851,7 @@ class WearableQueryService:
         providers: Optional[List[str]] = None,
         start_date: str,
         end_date: str,
-    ) -> List[Dict[str, Any]]:
+    ) -> List[WearableDailyTotalRead]:
         range_days = (datetime.strptime(end_date, "%Y-%m-%d") - datetime.strptime(start_date, "%Y-%m-%d")).days + 1
         if range_days > WEARABLE_DAILY_TOTALS_OBJECT_LOAD_MAX_DAYS:
             return await self._get_daily_totals_aggregated(
@@ -905,7 +911,7 @@ class WearableQueryService:
             metric_keys = set((date_value, metric_type) for date_value, metric_type, _provider in grouped_samples.keys())
             metric_keys.update((date_value, metric_type) for date_value, metric_type, _provider in grouped_events.keys())
 
-            per_day: Dict[str, Dict[str, Dict[str, Any]]] = {}
+            per_day: Dict[str, Dict[str, WearableDailyMetricValueRead]] = {}
 
             for date_value, metric_type in sorted(metric_keys):
                 providers_for_samples: Dict[str, List[WearableSampleDB]] = {
@@ -953,16 +959,16 @@ class WearableQueryService:
                 if aggregated_value is None:
                     continue
 
-                per_day.setdefault(date_value, {})[metric_type] = {
-                    "value": aggregated_value,
-                    "unit": unit,
-                    "aggregation": aggregation_label,
-                    "provider": provider_name,
-                    "selected_source": selected_sample_source or selected_event_source,
-                }
+                per_day.setdefault(date_value, {})[metric_type] = WearableDailyMetricValueRead(
+                    value=aggregated_value,
+                    unit=unit,
+                    aggregation=aggregation_label,
+                    provider=provider_name,
+                    selected_source=selected_sample_source or selected_event_source,
+                )
 
             return [
-                {"date": date_value, "metrics": metrics}
+                WearableDailyTotalRead(date=date_value, metrics=metrics)
                 for date_value, metrics in sorted(per_day.items(), key=lambda item: item[0])
             ]
 

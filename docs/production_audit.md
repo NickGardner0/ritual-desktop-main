@@ -628,7 +628,7 @@ npx tsc --noEmit       # TypeScript check (may OOM on large project)
 npm run lint           # ESLint
 
 # Database
-cd backend && python scripts/migrate_add_import_tables.py
+python apps/backend/scripts/run_database_migrations.py
 
 # Tinybird
 cd apps/tinybird && tb push  # Deploy datasources and pipes

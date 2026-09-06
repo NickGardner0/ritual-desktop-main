@@ -1,10 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CalendarDays, FlaskConical, Plug2, Settings, TableProperties } from "lucide-react";
-import TocIcon from "@mui/icons-material/Toc";
+import { CalendarDays, ChartNoAxesColumn, FileText, FlaskConical, List, Plug2, Repeat2, Settings, TableProperties } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { isTauri } from "@/lib/tauri-utils";
+import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
 
 type SidebarState = {
   path: string;
@@ -28,23 +27,27 @@ const ILetterIcon = ({ strokeWidth = 2.1, ...props }: React.SVGProps<SVGSVGEleme
 
 const items = [
   { path: "/dashboard", name: "Index", icon: ILetterIcon },
-  { path: "/tasks", name: "Tasks", icon: TocIcon },
+  { path: "/dashboard?view=metrics", name: "Metrics", icon: ChartNoAxesColumn },
   { path: "/activity", name: "Logs", icon: TableProperties },
+  { path: "/tasks", name: "Tasks", icon: List },
   { path: "/calendar", name: "Calendar", icon: CalendarDays },
+  { path: "/reports", name: "Reports", icon: FileText },
+  { path: "/routines", name: "Routines", icon: Repeat2 },
   { path: "/experiments", name: "Experiments", icon: FlaskConical },
   { path: "/integrations", name: "Integrations", icon: Plug2 },
   { path: "/settings", name: "Settings", icon: Settings },
 ];
 
 export function DetachedSidebarShell() {
+  const { isDesktop } = useDesktopCapabilities();
   const [isExpanded, setIsExpanded] = useState(false);
   const [activePath, setActivePath] = useState("/dashboard");
   const collapsedWidth = 76;
-  const expandedWidth = 202;
+  const expandedWidth = 256;
   const width = isExpanded ? expandedWidth : collapsedWidth;
 
   useEffect(() => {
-    if (!isTauri()) return;
+    if (!isDesktop) return;
     (async () => {
       const { invoke } = await import("@tauri-apps/api/core");
       try {
@@ -58,7 +61,7 @@ export function DetachedSidebarShell() {
   }, []);
 
   useEffect(() => {
-    if (!isTauri()) return;
+    if (!isDesktop) return;
     (async () => {
       const { invoke } = await import("@tauri-apps/api/core");
       try {
@@ -70,7 +73,7 @@ export function DetachedSidebarShell() {
   }, [width]);
 
   useEffect(() => {
-    if (!isTauri()) return;
+    if (!isDesktop) return;
     let unlisten: (() => void) | null = null;
     (async () => {
       const { listen } = await import("@tauri-apps/api/event");
@@ -88,7 +91,7 @@ export function DetachedSidebarShell() {
   const navigate = async (path: string) => {
     if (path === "/experiments") return;
     setActivePath(path);
-    if (!isTauri()) return;
+    if (!isDesktop) return;
     const { invoke } = await import("@tauri-apps/api/core");
     await invoke("sidebar_navigate", { path });
   };
@@ -97,7 +100,7 @@ export function DetachedSidebarShell() {
     <aside
       className={cn(
         "sidebar-vibrancy relative h-screen flex-shrink-0 flex-col justify-between fixed top-0 left-0 pb-4 items-stretch overflow-hidden flex z-[1002]",
-        isExpanded ? "w-[202px]" : "w-[76px]",
+        isExpanded ? "w-[256px]" : "w-[76px]",
       )}
       style={{ transition: 'width 200ms cubic-bezier(0.4, 0, 0.2, 1)' }}
       onMouseEnter={() => setIsExpanded(true)}
@@ -118,9 +121,25 @@ export function DetachedSidebarShell() {
 
       <div className="flex flex-col w-full pt-[70px] flex-1 mt-6">
         <nav className="w-full">
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-3">
             {items.map((item) => {
-              const isActive = activePath.startsWith(item.path);
+              const [itemBasePath, itemQuery] = item.path.split("?");
+              const activeUrl = new URL(activePath, "http://ritual.local");
+              const itemQueryParams = new URLSearchParams(itemQuery || "");
+              const matchingQueryItem = items.some((candidate) => {
+                const [candidateBasePath, candidateQuery] = candidate.path.split("?");
+                if (candidateBasePath !== item.path || !candidateQuery) return false;
+                const candidateParams = new URLSearchParams(candidateQuery);
+                return Array.from(candidateParams.entries()).every(
+                  ([key, value]) => activeUrl.searchParams.get(key) === value,
+                );
+              });
+              const isActive = itemQuery
+                ? activeUrl.pathname === itemBasePath &&
+                  Array.from(itemQueryParams.entries()).every(
+                    ([key, value]) => activeUrl.searchParams.get(key) === value,
+                  )
+                : !matchingQueryItem && activeUrl.pathname.startsWith(item.path);
               const isCollapsedActive = isActive && !isExpanded;
               const Icon = item.icon;
               return (
@@ -128,16 +147,19 @@ export function DetachedSidebarShell() {
                   <div className="relative">
                     <div
                       className={cn(
-                        "h-[40px] rounded-sm transition-all duration-150 ease-standard",
-                        "group-hover/nav-item:bg-black/[0.045]",
-                        isActive && "bg-black/[0.065] group-hover/nav-item:bg-black/[0.075]",
-                        isExpanded ? "ml-[15px] mr-[15px] w-[calc(100%-30px)]" : "ml-[15px] w-[40px]",
+                        "sidebar-nav-row h-[30px] rounded-sm transition-none",
+                        isExpanded && "group-hover/nav-item:bg-[rgba(17,24,39,0.032)]",
+                        isExpanded && isActive && "bg-[rgba(17,24,39,0.052)] group-hover/nav-item:bg-[rgba(17,24,39,0.058)]",
+                        isExpanded ? "ml-[9px] mr-[9px] w-[calc(100%-18px)]" : "ml-[15px] w-[40px]",
                       )}
+                      data-active={isActive ? "true" : undefined}
+                      data-expanded={isExpanded ? "true" : "false"}
                     />
                     <div
                       className={cn(
-                        "absolute top-0 left-[15px] w-[40px] h-[40px] flex items-center justify-center transition-[color,transform] duration-200",
-                        "text-[#5f6368] group-hover/nav-item:text-[#252525]",
+                        "absolute top-0 left-[15px] flex h-[30px] w-[40px] items-center justify-center transition-[color,transform] duration-75",
+                        "text-[#575b60] group-hover/nav-item:text-[#252525]",
+                        !isExpanded && "text-[#252525] group-hover/nav-item:text-[#050505]",
                         isActive && "text-[#111111]",
                         isCollapsedActive && "scale-[1.04]",
                       )}
@@ -145,11 +167,11 @@ export function DetachedSidebarShell() {
                       <Icon className="h-[18px] w-[18px]" strokeWidth={isActive ? 2.35 : 2.1} />
                     </div>
                     {isExpanded && (
-                      <div className="absolute top-0 left-[55px] right-[8px] h-[40px] flex items-center">
+                      <div className="absolute top-0 left-[55px] right-[8px] flex h-[30px] items-center">
                         <span
                           className={cn(
-                            "text-sm font-[450] transition-colors duration-200 text-[#666] group-hover/nav-item:text-[#252525] whitespace-nowrap overflow-hidden",
-                            isActive && "font-[560] text-[#111111]",
+                            "text-sm font-[450] transition-colors duration-75 text-[#5f5f5f] group-hover/nav-item:text-[#252525] whitespace-nowrap overflow-hidden",
+                            isActive && "text-[#111111]",
                           )}
                         >
                           {item.name}

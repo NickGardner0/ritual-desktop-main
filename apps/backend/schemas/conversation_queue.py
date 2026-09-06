@@ -44,6 +44,10 @@ class ConversationQueueUpdate(BaseModel):
     error: Optional[Dict[str, Any]] = None
 
 
+class ConversationQueueTransition(BaseModel):
+    error: Optional[Dict[str, Any]] = None
+
+
 class ConversationQueueListResponse(BaseModel):
     items: List[ConversationQueueItemRead] = Field(default_factory=list)
     auto_run_queued: bool = False

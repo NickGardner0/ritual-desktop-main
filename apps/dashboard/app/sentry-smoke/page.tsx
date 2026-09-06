@@ -2,8 +2,7 @@
 
 import * as Sentry from '@sentry/nextjs';
 import { useState } from 'react';
-import { invokeDesktopCommand } from '@/lib/desktop-bridge/commands';
-import { isDesktopTauriRuntime } from '@/lib/desktop-bridge/environment';
+import { invokeDesktopCommand, isDesktopTauriRuntime } from '@/lib/native-gateway';
 import { sentryStructuredLog } from '@/lib/sentry-structured-logger';
 
 type SmokeResult = {

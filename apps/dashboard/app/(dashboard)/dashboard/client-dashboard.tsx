@@ -1,8 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useRef } from 'react';
-import { useUser } from '@clerk/nextjs';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { useUser } from '@/lib/desktop-session';
+import { usePathname, useRouter, useSearchParams } from '@/lib/app-navigation';
 import { UnifiedAnalyticsClient } from '@/components/analytics/unified-analytics-client';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
 import type { ViewMode } from '@/components/analytics/view-mode-toggle';
@@ -21,10 +21,8 @@ function isDesktopDashboardRuntime(): boolean {
 
 export function ClientDashboard({
   initialViewMode,
-  initialUserId,
 }: {
   initialViewMode: ViewMode;
-  initialUserId: string | null;
 }) {
   const signedOutRedirectStartedRef = useRef(false);
   const router = useRouter();
@@ -48,19 +46,16 @@ export function ClientDashboard({
     perfInfo('client-dashboard', 'signed-out-dashboard-redirect', {
       reason,
       initial_view_mode: initialViewMode,
-      has_server_snapshot: Boolean(initialUserId),
     });
 
     router.replace('/sign-in');
-  }, [initialUserId, initialViewMode, pathname, router, searchParams]);
+  }, [initialViewMode, pathname, router, searchParams]);
 
   useEffect(() => {
     const mountTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
 
     perfInfo('client-dashboard', 'mount', {
       initial_view_mode: initialViewMode,
-      has_server_snapshot: Boolean(initialUserId),
-      initial_user_id: initialUserId,
     });
 
     let frame1 = 0;
@@ -83,7 +78,7 @@ export function ClientDashboard({
         if (frame2) window.cancelAnimationFrame(frame2);
       }
     };
-  }, [initialUserId, initialViewMode]);
+  }, [initialViewMode]);
 
   useEffect(() => {
     if (!userLoaded || isSignedIn) {
@@ -116,7 +111,6 @@ export function ClientDashboard({
   return (
     <UnifiedAnalyticsClient
       initialViewMode={initialViewMode}
-      initialUserId={initialUserId}
     />
   );
 }

@@ -1,5 +1,3 @@
-import OpenAI from 'openai';
-
 import {
   executeGetHabitStats,
   executeGetDailyBreakdown,
@@ -18,8 +16,9 @@ import {
   executeGetDailyBiometrics,
   executeGetScreenTimeSummary,
   executeGetCalendarEvents,
-  executeGetSmsPreferences,
-  executeUpdateSmsPreferences,
+  executeSearchCalendar,
+  executeFindCalendarAvailability,
+  executeProposeCalendarChanges,
 } from './executors/index.js';
 import {
   inferRecapAnchorDate,
@@ -55,20 +54,6 @@ async function executeGetActivitySummary(
   );
 }
 
-// Singleton OpenAI client — reuses TCP/TLS connections across requests
-// instead of paying ~1-2s cold handshake per request.
-let _openaiClient: OpenAI | null = null;
-
-export function getOpenAIClient(): OpenAI {
-  if (_openaiClient) return _openaiClient;
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    throw new Error('OPENAI_API_KEY is not configured');
-  }
-  _openaiClient = new OpenAI({ apiKey });
-  return _openaiClient;
-}
-
 export function safeJsonParse<T>(raw: string): T | null {
   try {
     return JSON.parse(raw) as T;
@@ -94,6 +79,10 @@ export interface ToolExecutionContext {
   latestUserContent: string;
   weeklyOverviewQueryParams: { startDate?: string; endDate?: string; daysBack?: number; strictThisWeek?: boolean };
   strictThisWeekForWeeklyOverview?: boolean;
+  conversationId?: string | null;
+  conversationIdPromise?: Promise<string | null>;
+  toolCallId?: string;
+  clientEventId?: string;
 }
 
 /**
@@ -196,14 +185,25 @@ export async function dispatchToolCall(
       return executeGetScreenTimeSummary(token, a, ctx.timezone);
     case 'getCalendarEvents':
       return executeGetCalendarEvents(token, a, ctx.timezone);
+    case 'searchCalendar':
+      return executeSearchCalendar(token, a);
+    case 'findCalendarAvailability':
+      return executeFindCalendarAvailability(token, { ...a, timezone: a.timezone || ctx.timezone });
+    case 'proposeCalendarChanges':
+    case 'planMyDay':
+      return executeProposeCalendarChanges(token, a, ctx.conversationId);
     case 'logHabit':
-      return executeLogHabit(token, a, ctx.timezone);
+      return executeLogHabit(token, a, ctx.timezone, {
+        conversationId: ctx.conversationId,
+        conversationIdPromise: ctx.conversationIdPromise,
+        clientEventId: ctx.clientEventId,
+      });
     case 'createHabit':
-      return executeCreateHabit(token, a);
-    case 'getSmsPreferences':
-      return executeGetSmsPreferences(token);
-    case 'updateSmsPreferences':
-      return executeUpdateSmsPreferences(token, a);
+      return executeCreateHabit(token, a, {
+        conversationId: ctx.conversationId,
+        conversationIdPromise: ctx.conversationIdPromise,
+        clientEventId: ctx.clientEventId,
+      });
     default:
       return JSON.stringify({ error: `Unknown tool: ${name}` });
   }

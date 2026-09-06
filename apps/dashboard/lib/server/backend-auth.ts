@@ -1,3 +1,12 @@
+export function resolveProxyForwarding(contentTypeHeader: string | null | undefined) {
+  const contentType = contentTypeHeader?.trim() || "";
+  const isMultipart = contentType.toLowerCase().includes("multipart/form-data");
+  return {
+    isMultipart,
+    contentType: isMultipart ? contentType : "application/json",
+  };
+}
+
 export function buildBackendAuthHeaders({
   userId,
   token,

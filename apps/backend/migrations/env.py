@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 from alembic import context
 from sqlalchemy import create_engine, pool
@@ -19,21 +20,30 @@ config = context.config
 target_metadata = Base.metadata
 
 
-def _migration_database_url() -> str:
-    url = os.getenv("ALEMBIC_DATABASE_URL") or os.getenv("DATABASE_URL")
-    if not url:
+def _migration_connection_settings() -> tuple[str, dict[str, str]]:
+    raw_url = os.getenv("ALEMBIC_DATABASE_URL") or os.getenv("DATABASE_URL")
+    if not raw_url:
         raise RuntimeError("ALEMBIC_DATABASE_URL or DATABASE_URL is required for migrations")
-    if url.startswith("libsql://"):
+
+    if not raw_url.startswith("libsql://"):
+        return raw_url, {}
+
+    parsed = urlparse(raw_url)
+    auth_token = parse_qs(parsed.query).get("authToken", [None])[0]
+    if not parsed.netloc or not auth_token:
         raise RuntimeError(
-            "Alembic migrations require a direct SQLAlchemy-compatible URL. "
-            "Set ALEMBIC_DATABASE_URL for the migration target."
+            "Turso DATABASE_URL must include a host and authToken query parameter"
         )
-    return url
+
+    database_path = parsed.path or ""
+    sqlalchemy_url = f"sqlite+libsql://{parsed.netloc}{database_path}?secure=true"
+    return sqlalchemy_url, {"auth_token": auth_token}
 
 
 def run_migrations_offline() -> None:
+    url, _ = _migration_connection_settings()
     context.configure(
-        url=_migration_database_url(),
+        url=url,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
@@ -43,7 +53,12 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
-    engine = create_engine(_migration_database_url(), poolclass=pool.NullPool)
+    url, connect_args = _migration_connection_settings()
+    engine = create_engine(
+        url,
+        poolclass=pool.NullPool,
+        connect_args=connect_args,
+    )
     with engine.connect() as connection:
         context.configure(connection=connection, target_metadata=target_metadata)
         with context.begin_transaction():

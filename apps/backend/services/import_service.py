@@ -18,9 +18,9 @@ import uuid
 import hashlib
 import json
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any, Tuple, Set
-from sqlalchemy import select, and_, or_, func, insert
+from sqlalchemy import select, and_, or_, func, insert, update
 from sqlalchemy.exc import SQLAlchemyError
 
 from database.connection import get_db_session
@@ -37,6 +37,17 @@ from models.import_models import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class ImportRunTransitionConflict(RuntimeError):
+    """Raised when an import run no longer has an expected lifecycle state."""
+
+    def __init__(self, run_id: str, current_status: Optional[str]):
+        self.run_id = run_id
+        self.current_status = current_status
+        super().__init__(
+            f"Import run {run_id} transition lost; current status is {current_status or 'missing'}"
+        )
 
 
 def generate_dedupe_key(
@@ -284,61 +295,92 @@ class ImportService:
             
             return self._db_to_model(run_db)
     
-    async def update_import_run_status(
+    async def transition_import_run(
         self,
         run_id: str,
+        *,
+        expected_statuses: Set[ImportStatus],
         status: ImportStatus,
         summary: Optional[ImportRunSummary] = None,
-        errors: Optional[List[Dict[str, Any]]] = None
-    ) -> None:
-        """
-        Update import run status and optionally summary/errors.
-        """
+        errors: Optional[List[Dict[str, Any]]] = None,
+        progress_current: Optional[int] = None,
+        progress_total: Optional[int] = None,
+    ) -> ImportRun:
+        """Atomically transition a run and consistently own lifecycle fields."""
+
+        if not expected_statuses:
+            raise ValueError("expected_statuses must not be empty")
+
         async with get_db_session() as session:
+            now = datetime.now(timezone.utc).replace(tzinfo=None)
+            values: Dict[str, Any] = {"status": status.value}
+
+            if status == ImportStatus.IMPORTING:
+                values.update(
+                    started_at=func.coalesce(ImportRunDB.started_at, now),
+                    completed_at=None,
+                    error_json=None,
+                    undo_available=False,
+                )
+            elif status in {
+                ImportStatus.COMPLETED,
+                ImportStatus.FAILED,
+                ImportStatus.CANCELED,
+            }:
+                values.update(
+                    completed_at=now,
+                    undo_available=status == ImportStatus.COMPLETED,
+                    error_json=json.dumps(errors) if status == ImportStatus.FAILED and errors is not None else None,
+                )
+            elif status in {ImportStatus.CREATED, ImportStatus.PARSING, ImportStatus.READY}:
+                values.update(completed_at=None, error_json=None, undo_available=False)
+
+            if summary is not None:
+                values["summary_json"] = json.dumps(summary.model_dump())
+            if progress_current is not None:
+                values["progress_current"] = max(0, int(progress_current))
+            if progress_total is not None:
+                values["progress_total"] = max(0, int(progress_total))
+
+            result = await session.execute(
+                update(ImportRunDB)
+                .where(
+                    ImportRunDB.id == run_id,
+                    ImportRunDB.status.in_([item.value for item in expected_statuses]),
+                )
+                .values(**values)
+                .returning(ImportRunDB.id)
+            )
+            if result.scalar_one_or_none() is None:
+                current_result = await session.execute(
+                    select(ImportRunDB.status).where(ImportRunDB.id == run_id)
+                )
+                current_status = current_result.scalar_one_or_none()
+                await session.rollback()
+                raise ImportRunTransitionConflict(run_id, current_status)
+
+            await session.commit()
             result = await session.execute(
                 select(ImportRunDB).where(ImportRunDB.id == run_id)
             )
             run_db = result.scalar_one_or_none()
-            
-            if not run_db:
-                raise Exception("Import run not found")
-            
-            run_db.status = status.value
-            
-            if status == ImportStatus.IMPORTING and not run_db.started_at:
-                run_db.started_at = datetime.utcnow()
-            
-            if status in [ImportStatus.COMPLETED, ImportStatus.FAILED, ImportStatus.CANCELED]:
-                run_db.completed_at = datetime.utcnow()
-                run_db.undo_available = status == ImportStatus.COMPLETED
-            
-            if summary:
-                run_db.summary_json = json.dumps(summary.model_dump())
-            
-            if errors:
-                run_db.error_json = json.dumps(errors)
-            
-            await session.commit()
-    
+            if run_db is None:
+                raise ImportRunTransitionConflict(run_id, None)
+            return self._db_to_model(run_db)
+
     async def update_import_progress(
         self,
         run_id: str,
         current: int,
-        total: int
-    ) -> None:
-        """
-        Update import progress counters.
-        """
-        async with get_db_session() as session:
-            result = await session.execute(
-                select(ImportRunDB).where(ImportRunDB.id == run_id)
-            )
-            run_db = result.scalar_one_or_none()
-            
-            if run_db:
-                run_db.progress_current = current
-                run_db.progress_total = total
-                await session.commit()
+        total: int,
+    ) -> ImportRun:
+        return await self.transition_import_run(
+            run_id,
+            expected_statuses={ImportStatus.IMPORTING},
+            status=ImportStatus.IMPORTING,
+            progress_current=current,
+            progress_total=total,
+        )
     
     # ================================
     # IMPORT ITEMS (STAGING) - BULK OPTIMIZED
@@ -734,7 +776,9 @@ class ImportService:
                             results.append(BatchLogResult(
                                 index=i,
                                 status="skipped",
-                                error="Exact duplicate"
+                                log_id=existing_by_key[dedupe_key],
+                                error="Exact duplicate",
+                                was_inserted=False,
                             ))
                             skipped += 1
                             continue
@@ -749,7 +793,8 @@ class ImportService:
                                 results.append(BatchLogResult(
                                     index=i,
                                     status="skipped",
-                                    log_id=existing_log.id
+                                    log_id=existing_log.id,
+                                    was_inserted=False,
                                 ))
                                 skipped += 1
                                 continue
@@ -830,6 +875,8 @@ class ImportService:
                             "status": "completed",
                             "notes": log_data.notes,
                             "source": log_data.source or "import",
+                            "actor_type": "import",
+                            "actor_ref": request.import_run_id,
                             "source_id": log_data.source_id,
                             "dedupe_key": dedupe_key,
                             "import_run_id": request.import_run_id,
@@ -842,7 +889,8 @@ class ImportService:
                         results.append(BatchLogResult(
                             index=i,
                             status="inserted",
-                            log_id=log_id
+                            log_id=log_id,
+                            was_inserted=True,
                         ))
                         inserted += 1
                         

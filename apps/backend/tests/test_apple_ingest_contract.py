@@ -8,12 +8,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from schemas.wearables_apple import AppleIngestRequestV2, AppleIngestResponseV2, AppleSyncTelemetryRequest
-from services.wearables_service import WearablesService
+from services.wearables_unified import wearable_device_security_service
 
 
 class AppleIngestContractTests(unittest.TestCase):
     def setUp(self):
-        self.service = WearablesService()
+        self.device_security = wearable_device_security_service
 
     def test_v2_request_schema_accepts_ios_payload_shape(self):
         payload = {
@@ -57,7 +57,7 @@ class AppleIngestContractTests(unittest.TestCase):
         self.assertTrue(request.added[0].should_project_to_habit_logs)
 
     def test_signature_canonical_contract_matches_ios(self):
-        canonical = self.service.build_canonical_string(
+        canonical = self.device_security.build_canonical_string(
             device_id="abc-device",
             client_event_id="abc-event",
             captured_at="2026-02-27T12:34:56Z",
@@ -77,14 +77,14 @@ class AppleIngestContractTests(unittest.TestCase):
         expected_signature = base64.b64encode(expected).decode("utf-8")
 
         self.assertTrue(
-            self.service.verify_signature(
+            self.device_security.verify_signature(
                 device_secret=secret_b64,
                 canonical_string=canonical,
                 provided_signature=expected_signature,
             )
         )
         self.assertFalse(
-            self.service.verify_signature(
+            self.device_security.verify_signature(
                 device_secret=secret_b64,
                 canonical_string=canonical,
                 provided_signature=expected_signature + "tampered",

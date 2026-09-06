@@ -2,24 +2,37 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 #![allow(unexpected_cfgs)]
 
+mod activity_rollups;
+mod app_paths;
+mod chat_runtime;
 mod cloud_sync;
 mod desktop_observability;
 mod desktop_runtime;
+mod desktop_runtime_types;
+mod local_vault;
 mod native_widget;
+mod privacy_policy;
+mod resident_runtime;
 mod ritual_database;
+mod sidecar_integrity;
+mod sidebar_glass;
 mod watcher;
+mod watcher_activity;
 
-use std::collections::HashMap;
 use std::env;
-use std::sync::{Mutex, OnceLock};
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::sync::Mutex;
+use std::thread;
 use std::time::{Duration, Instant};
 use tauri::{
-    menu::{MenuBuilder, MenuItemBuilder},
+    menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Emitter, Manager, RunEvent,
 };
 #[cfg(target_os = "macos")]
 use tauri_plugin_deep_link::DeepLinkExt;
+use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 use tracing::{info, instrument, warn};
 
 // ============================================================================
@@ -45,6 +58,18 @@ const STAGING_APP_URL: &str = "https://staging.ritual.app";
 const PROD_APP_URL: &str = "https://desktop.ritualdb.com";
 const DESKTOP_SHELL_DEV_URL: &str = "http://127.0.0.1:1420";
 const DESKTOP_WEBVIEW_USER_AGENT: &str = "RitualDesktop/0.1.0";
+const MAIN_WINDOW_DEFAULT_WIDTH: f64 = 1260.0;
+const MAIN_WINDOW_DEFAULT_HEIGHT: f64 = 770.0;
+const MAIN_WINDOW_DEFAULT_SIZE_MARKER: &str = ".main_window_default_size_1260x770_v1.done";
+
+const VOICE_HUD_WINDOW_WIDTH: f64 = 860.0;
+const VOICE_HUD_WINDOW_HEIGHT: f64 = 244.0;
+const DEFAULT_VOICE_SHORTCUT: &str = "Alt+Space";
+const VOICE_HOTKEY_SETTINGS_FILE: &str = "voice-hotkey-settings.json";
+#[cfg(target_os = "macos")]
+const VOICE_HUD_HELPER_APP_NAME: &str = "RitualVoiceHud.app";
+#[cfg(target_os = "macos")]
+const VOICE_HUD_HELPER_EXECUTABLE: &str = "ritual-voice-hud";
 
 #[derive(Clone, Copy, Debug)]
 enum DesktopShellNavGateMode {
@@ -118,6 +143,38 @@ fn read_nonempty_env(name: &str) -> Option<String> {
         .ok()
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
+}
+
+fn apply_one_time_main_window_default_size(window: &tauri::WebviewWindow) {
+    let ritual_dir = app_paths::data_dir();
+    let marker_path = ritual_dir.join(MAIN_WINDOW_DEFAULT_SIZE_MARKER);
+    if marker_path.exists() {
+        return;
+    }
+
+    if let Err(error) = window.set_size(tauri::Size::Logical(tauri::LogicalSize {
+        width: MAIN_WINDOW_DEFAULT_WIDTH,
+        height: MAIN_WINDOW_DEFAULT_HEIGHT,
+    })) {
+        warn!(error = %error, "Failed to apply one-time main window default size");
+        return;
+    }
+
+    if let Err(error) = window.center() {
+        warn!(error = %error, "Failed to center main window after default size migration");
+    }
+
+    if let Err(error) = std::fs::create_dir_all(&ritual_dir) {
+        warn!(error = %error, "Failed to create Ritual config directory for window size marker");
+        return;
+    }
+    if let Err(error) = std::fs::write(&marker_path, b"ok\n") {
+        warn!(
+            error = %error,
+            marker_path = %marker_path.display(),
+            "Failed to write main window default size marker"
+        );
+    }
 }
 
 fn configured_ritual_env() -> String {
@@ -210,7 +267,7 @@ fn build_desktop_bootstrap_url(app_origin: &str, ritual_env: &str) -> String {
     }
 
     let transparency_probe = env_flag_enabled("RITUAL_TRANSPARENCY_PROBE");
-    let main_glass_enabled = transparency_probe || !env_flag_enabled("RITUAL_DISABLE_MAIN_GLASS");
+    let main_glass_enabled = main_window_glass_enabled(transparency_probe);
     let mut bootstrap_url = with_query_param(
         &join_url_path(app_origin, "/dashboard"),
         &format!("ritual_desktop_env={}", ritual_env),
@@ -242,8 +299,7 @@ fn build_desktop_shell_bootstrap_config() -> DesktopShellBootstrapConfig {
 }
 
 fn is_supported_desktop_deep_link(raw: &str) -> bool {
-    let trimmed = raw.trim();
-    trimmed.starts_with("ritual://") || trimmed.starts_with("com.ritual.desktop://")
+    desktop_runtime::auth_handoff::is_supported_scheme(raw)
 }
 
 fn focus_main_window<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
@@ -266,9 +322,17 @@ fn handle_desktop_auth_deep_link<R: tauri::Runtime>(app: &tauri::AppHandle<R>, r
         return;
     }
 
+    let prepared = match desktop_runtime::auth_handoff::prepare_deep_link_for_webview(&trimmed) {
+        Ok(prepared) => prepared,
+        Err(error) => {
+            warn!(payload = %redacted_payload, error = %error, "Rejecting invalid desktop auth handoff");
+            return;
+        }
+    };
+
     info!(payload = %redacted_payload, "Desktop deep link received");
     focus_main_window(app);
-    desktop_runtime::emit_auth_deep_link(app, trimmed);
+    desktop_runtime::emit_auth_deep_link(app, prepared);
 }
 
 #[tauri::command]
@@ -276,39 +340,19 @@ fn get_desktop_shell_bootstrap_config() -> DesktopShellBootstrapConfig {
     build_desktop_shell_bootstrap_config()
 }
 
-#[tauri::command]
-async fn check_desktop_hosted_app_reachable(url: String) -> Result<bool, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let client = reqwest::blocking::Client::builder()
-            .redirect(reqwest::redirect::Policy::limited(5))
-            .timeout(std::time::Duration::from_secs(6))
-            .build()
-            .map_err(|error| format!("Failed to create hosted app probe client: {error}"))?;
-
-        let response = client
-            .get(&url)
-            .send()
-            .map_err(|error| format!("Failed to reach hosted desktop app: {error}"))?;
-
-        Ok(response.status().is_success() || response.status().is_redirection())
-    })
-    .await
-    .map_err(|error| format!("Hosted desktop reachability task failed: {error}"))?
-}
-
 fn should_use_local_shell_window() -> bool {
     !matches!(configured_ritual_env().as_str(), "development" | "dev")
 }
 
-fn desktop_shell_window_url() -> Result<tauri::WebviewUrl, std::io::Error> {
-    if should_use_local_shell_window() {
-        Ok(tauri::WebviewUrl::App("index.html".into()))
-    } else {
+fn desktop_shell_window_url(_hosted_app_url: &str) -> Result<tauri::WebviewUrl, std::io::Error> {
+    if !should_use_local_shell_window() {
         let shell_external_url = DESKTOP_SHELL_DEV_URL.parse().map_err(|error| {
             std::io::Error::other(format!("Invalid desktop shell dev URL: {error}"))
         })?;
-        Ok(tauri::WebviewUrl::External(shell_external_url))
+        return Ok(tauri::WebviewUrl::External(shell_external_url));
     }
+
+    Ok(tauri::WebviewUrl::App("index.html".into()))
 }
 
 fn env_flag_enabled(name: &str) -> bool {
@@ -318,6 +362,47 @@ fn env_flag_enabled(name: &str) -> bool {
             matches!(value.as_str(), "1" | "true" | "yes" | "on")
         })
         .unwrap_or(false)
+}
+
+fn main_window_glass_enabled(transparency_probe: bool) -> bool {
+    // Native NSGlassEffectView / NSVisualEffectView is compositor frost, not
+    // CSS backdrop-filter. Default on so Frosted actually shows glass; set
+    // RITUAL_DISABLE_MAIN_GLASS=1 to keep an opaque window.
+    transparency_probe || !env_flag_enabled("RITUAL_DISABLE_MAIN_GLASS")
+}
+
+fn main_window_show_on_html_init_script() -> &'static str {
+    r#"(function () {
+  try {
+    var params = new URLSearchParams(window.location.search);
+    if (params.get("ritual_settings_window") === "1") return;
+    if (params.get("ritual_voice_hud_window") === "1") return;
+    if (params.get("ritual_sidebar_window") === "1") return;
+    var internals = window.__TAURI_INTERNALS__;
+    if (internals && typeof internals.invoke === "function") {
+      internals.invoke("show_main_window");
+    }
+  } catch (_error) {}
+})();"#
+}
+
+fn main_window_glass_init_script(enabled: bool) -> String {
+    let flag = if enabled { "1" } else { "0" };
+    format!(
+        r#"(function () {{
+  try {{
+    var next = new URL(window.location.href);
+    next.searchParams.set("ritual_main_glass", "{flag}");
+    if ("{flag}" === "1") {{
+      document.documentElement.dataset.mainGlass = "1";
+      document.documentElement.style.background = "transparent";
+    }} else {{
+      delete document.documentElement.dataset.mainGlass;
+    }}
+    history.replaceState(null, "", next.pathname + next.search + next.hash);
+  }} catch (_error) {{}}
+}})();"#
+    )
 }
 
 fn load_persisted_turso_sync_config() -> PersistedTursoSyncConfigLoadStatus {
@@ -364,7 +449,8 @@ fn join_url_path(base: &str, path: &str) -> String {
 }
 
 fn shutdown_background_helpers() {
-    if let Err(err) = tauri::async_runtime::block_on(watcher::stop_watcher()) {
+    chat_runtime::stop_chat_runtime_sidecar();
+    if let Err(err) = tauri::async_runtime::block_on(watcher::lifecycle::stop_watcher()) {
         eprintln!(
             "⚠️ Failed to stop Ritual Watcher during app shutdown: {}",
             err
@@ -372,7 +458,7 @@ fn shutdown_background_helpers() {
     }
 }
 
-fn spawn_watcher_watchdog() {
+fn spawn_watcher_watchdog<R: tauri::Runtime + 'static>(app: tauri::AppHandle<R>) {
     tauri::async_runtime::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(60));
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -381,7 +467,13 @@ fn spawn_watcher_watchdog() {
         interval.tick().await;
         loop {
             interval.tick().await;
-            match watcher::check_and_restart_watcher_if_hung(60).await {
+            let tracking_enabled = app
+                .state::<resident_runtime::ResidentRuntimeStore>()
+                .read()
+                .tracking_enabled;
+            match watcher::diagnostics::check_and_restart_watcher_if_hung(60, tracking_enabled)
+                .await
+            {
                 Ok(true) => info!("Background watcher watchdog restarted Ritual Watcher"),
                 Ok(false) => {}
                 Err(e) => warn!(error = %e, "Background watcher watchdog check failed"),
@@ -392,17 +484,23 @@ fn spawn_watcher_watchdog() {
 
 const WATCHER_AUTOSTART_SUCCESS_LOG: &str = "Watcher auto-started successfully";
 
-async fn auto_start_watcher_from_config(config: watcher::WatcherConfig) {
+async fn auto_start_watcher_from_config<R: tauri::Runtime + 'static>(
+    app: tauri::AppHandle<R>,
+    config: watcher::WatcherConfig,
+) {
     let watcher_start_started_at = Instant::now();
+    watcher::lifecycle::emit_watcher_start_requested(&app, &config.device_id);
     info!(
         device_id = %config.device_id,
         user_id = %config.user_id,
         "Auto-starting Ritual Watcher"
     );
 
-    if watcher::check_accessibility_permission() {
-        match tauri::async_runtime::spawn_blocking(move || watcher::start_watcher_sync(config))
-            .await
+    if watcher::permissions::check_accessibility_permission() {
+        match tauri::async_runtime::spawn_blocking(move || {
+            watcher::lifecycle::start_watcher_sync(config)
+        })
+        .await
         {
             Ok(Ok(status)) => {
                 info!(
@@ -411,12 +509,18 @@ async fn auto_start_watcher_from_config(config: watcher::WatcherConfig) {
                     "{}",
                     WATCHER_AUTOSTART_SUCCESS_LOG
                 );
+                watcher::lifecycle::spawn_watcher_readiness_monitor(app.clone());
             }
             Ok(Err(error)) => {
                 warn!(
                     error = %error,
                     duration_ms = watcher_start_started_at.elapsed().as_millis() as u64,
                     "Failed to auto-start watcher"
+                );
+                watcher::lifecycle::emit_watcher_failed(
+                    &app,
+                    None,
+                    format!("watcher_autostart_failed: {error}"),
                 );
             }
             Err(error) => {
@@ -425,21 +529,127 @@ async fn auto_start_watcher_from_config(config: watcher::WatcherConfig) {
                     duration_ms = watcher_start_started_at.elapsed().as_millis() as u64,
                     "Watcher auto-start task failed"
                 );
+                watcher::lifecycle::emit_watcher_failed(
+                    &app,
+                    None,
+                    format!("watcher_autostart_task_failed: {error}"),
+                );
             }
         }
     } else {
         warn!("Watcher auto-start skipped: accessibility permission not granted");
+        watcher::lifecycle::emit_watcher_failed(
+            &app,
+            Some(config.device_id),
+            "accessibility_permission_not_granted".to_string(),
+        );
     }
 }
 
-fn spawn_background_startup_tasks<R: tauri::Runtime + 'static>(app: tauri::AppHandle<R>) {
+#[cfg(all(debug_assertions, unix))]
+fn spawn_debug_webview_reload_on_sigusr1<R: tauri::Runtime + 'static>(app: tauri::AppHandle<R>) {
+    tauri::async_runtime::spawn(async move {
+        let mut signals =
+            match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::user_defined1()) {
+                Ok(signals) => signals,
+                Err(error) => {
+                    warn!(
+                        error = %error,
+                        "Failed to install debug SIGUSR1 webview reload listener"
+                    );
+                    return;
+                }
+            };
+
+        while signals.recv().await.is_some() {
+            if let Some(window) = app.get_webview_window("main") {
+                match window.eval("window.location.reload()") {
+                    Ok(()) => info!("Reloaded main webview after debug SIGUSR1"),
+                    Err(error) => warn!(
+                        error = %error,
+                        "Failed to reload main webview after debug SIGUSR1"
+                    ),
+                }
+            }
+        }
+    });
+}
+
+#[cfg(any(debug_assertions, feature = "qa-tools"))]
+fn reload_focused_main_webview<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
+    let Some(window) = app.get_webview_window("main") else {
+        warn!("Reload requested without a main Ritual webview");
+        return;
+    };
+    if !window.is_focused().unwrap_or(false) {
+        warn!("Ignoring reload because the main Ritual webview is not focused");
+        return;
+    }
+    match window.eval("window.location.reload()") {
+        Ok(()) => info!("Reloaded focused main Ritual webview"),
+        Err(error) => warn!(error = %error, "Failed reloading focused main Ritual webview"),
+    }
+}
+
+fn install_ritual_app_menu<R: tauri::Runtime>(app: &tauri::App<R>) -> tauri::Result<()> {
+    let app_menu = SubmenuBuilder::new(app, "Ritual")
+        .hide()
+        .hide_others()
+        .show_all()
+        .separator()
+        .quit()
+        .build()?;
+    let edit_menu = SubmenuBuilder::new(app, "Edit")
+        .undo()
+        .redo()
+        .separator()
+        .cut()
+        .copy()
+        .paste()
+        .select_all()
+        .build()?;
+    let view_menu = {
+        let mut view = SubmenuBuilder::new(app, "View").fullscreen();
+        #[cfg(any(debug_assertions, feature = "qa-tools"))]
+        {
+            let reload = MenuItemBuilder::with_id("reload_main_webview", "Reload Ritual")
+                .accelerator("CmdOrCtrl+R")
+                .build(app)?;
+            view = view.separator().item(&reload);
+        }
+        view.build()?
+    };
+    let window_menu = SubmenuBuilder::new(app, "Window")
+        .minimize()
+        .maximize_with_text("Zoom")
+        .separator()
+        .close_window()
+        .build()?;
+    let menu = MenuBuilder::new(app)
+        .item(&app_menu)
+        .item(&edit_menu)
+        .item(&view_menu)
+        .item(&window_menu)
+        .build()?;
+    app.set_menu(menu)?;
+    #[cfg(target_os = "macos")]
+    window_menu.set_as_windows_menu_for_nsapp()?;
+    Ok(())
+}
+
+fn spawn_background_startup_tasks<R: tauri::Runtime + 'static>(
+    app: tauri::AppHandle<R>,
+    background_launch: bool,
+) {
     tauri::async_runtime::spawn(async move {
         let startup_started_at = Instant::now();
         let mut activity_database_ready = false;
 
-        // Let the webview paint before doing heavier native startup work so the
-        // main app finishes launching faster and the Dock icon settles sooner.
-        tokio::time::sleep(Duration::from_millis(250)).await;
+        // Direct launches get a brief first-paint head start. Login launches
+        // prioritize capture because their webview starts hidden.
+        if !background_launch {
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
 
         let persisted_sync_started_at = Instant::now();
         match tauri::async_runtime::spawn_blocking(load_persisted_turso_sync_config).await {
@@ -518,11 +728,15 @@ fn spawn_background_startup_tasks<R: tauri::Runtime + 'static>(app: tauri::AppHa
             cloud_sync::spawn_cloud_sync_worker(app.clone());
         }
 
-        if let Some(config) = read_watcher_config() {
-            auto_start_watcher_from_config(config).await;
+        if let Some(config) = watcher::load_watcher_config_for_autostart(
+            app.state::<resident_runtime::ResidentRuntimeStore>()
+                .read()
+                .tracking_enabled,
+        ) {
+            auto_start_watcher_from_config(app.clone(), config).await;
         }
 
-        spawn_watcher_watchdog();
+        spawn_watcher_watchdog(app.clone());
         desktop_runtime::emit_runtime_state_changed(app.clone());
 
         let memory_db_init_started_at = Instant::now();
@@ -579,7 +793,7 @@ mod startup_tests {
 #[cfg(target_os = "macos")]
 #[allow(unexpected_cfgs)]
 fn configure_macos_native_window_chrome(window: &tauri::WebviewWindow) {
-    use cocoa::base::{id, YES};
+    use cocoa::base::{id, NO, YES};
     use objc::runtime::BOOL;
     use objc::{msg_send, sel, sel_impl};
 
@@ -587,7 +801,36 @@ fn configure_macos_native_window_chrome(window: &tauri::WebviewWindow) {
         Ok(raw_window) => unsafe {
             let ns_win: id = raw_window as id;
 
+            let current_style_mask: u64 = msg_send![ns_win, styleMask];
+            // Preserve normal document-window behavior after Tauri's overlay
+            // titlebar customization. In production builds the overlay/full-size
+            // content style can be applied after the builder's `resizable(true)`,
+            // so make the AppKit resizable bit explicit here.
+            let titled_mask = 1_u64 << 0; // NSWindowStyleMaskTitled
+            let closable_mask = 1_u64 << 1; // NSWindowStyleMaskClosable
+            let miniaturizable_mask = 1_u64 << 2; // NSWindowStyleMaskMiniaturizable
+            let resizable_mask = 1_u64 << 3; // NSWindowStyleMaskResizable
+            let full_size_content_view_mask = 1_u64 << 15; // NSWindowStyleMaskFullSizeContentView
+                                                           // NSWindowStyleMaskFullSizeContentView lets the webview render under
+                                                           // the titlebar, which is required for the thin Atlas-style glass chrome.
+            let desired_style_mask = current_style_mask
+                | titled_mask
+                | closable_mask
+                | miniaturizable_mask
+                | resizable_mask
+                | full_size_content_view_mask;
+            let _: () = msg_send![
+                ns_win,
+                setStyleMask: desired_style_mask
+            ];
             let _: () = msg_send![ns_win, setHasShadow: YES];
+            let _: () = msg_send![ns_win, setIgnoresMouseEvents: NO];
+            // NSNormalWindowLevel = 0. Keep the main shell interactive and out
+            // of desktop-overlay/click-through levels.
+            let _: () = msg_send![ns_win, setLevel: 0_isize];
+            // Transparent glass windows steal AppKit edge-resize if the
+            // background is movable. Drag only via data-tauri-drag-region.
+            let _: () = msg_send![ns_win, setMovableByWindowBackground: NO];
             let _: () = msg_send![ns_win, setTitlebarAppearsTransparent: YES];
             // NSWindowTitleVisibilityHidden = 1
             let _: () = msg_send![ns_win, setTitleVisibility: 1_isize];
@@ -599,7 +842,7 @@ fn configure_macos_native_window_chrome(window: &tauri::WebviewWindow) {
                 let _: () = msg_send![ns_win, setToolbarStyle: 4_isize];
             }
 
-            println!("✅ NSWindow native chrome tuned (shadow + transparent titlebar)");
+            println!("✅ NSWindow native chrome tuned (shadow + transparent titlebar + resizable)");
         },
         Err(e) => eprintln!("❌ NSWindow handle not available for chrome tuning: {e}"),
     }
@@ -610,9 +853,10 @@ fn configure_macos_native_window_chrome(window: &tauri::WebviewWindow) {
 fn configure_macos_window_transparency(window: &tauri::WebviewWindow) {
     use cocoa::appkit::{NSColor, NSWindow};
     use cocoa::base::{id, nil};
-    use objc::{msg_send, sel, sel_impl};
 
-    println!("🔧 Configuring macOS window transparency + liquid glass…");
+    println!("🔧 Configuring macOS window transparency…");
+
+    let _ = window.set_background_color(Some(tauri::utils::config::Color(0, 0, 0, 0)));
 
     match window.ns_window() {
         Ok(raw_window) => unsafe {
@@ -620,206 +864,8 @@ fn configure_macos_window_transparency(window: &tauri::WebviewWindow) {
             ns_win.setOpaque_(cocoa::base::NO);
             ns_win.setBackgroundColor_(NSColor::clearColor(nil));
             println!("✅ NSWindow transparent configured (non-opaque + clear)");
-
-            // -----------------------------------------------------------
-            // Apply Apple Liquid Glass (macOS 26+ / NSGlassEffectView)
-            // Falls back to NSVisualEffectView vibrancy on older macOS.
-            // -----------------------------------------------------------
-            let content_view: id = msg_send![ns_win, contentView];
-            if content_view.is_null() {
-                eprintln!("❌ contentView is null, cannot apply glass");
-                return;
-            }
-
-            // Try to get NSGlassEffectView class (macOS 26+ / Tahoe)
-            let glass_cls = objc::runtime::Class::get("NSGlassEffectView");
-            if let Some(cls) = glass_cls {
-                // Instantiate NSGlassEffectView
-                let frame: cocoa::foundation::NSRect = msg_send![content_view, bounds];
-                let alloc: id = msg_send![cls, alloc];
-                if alloc.is_null() {
-                    eprintln!("⚠️ NSGlassEffectView alloc returned null, falling back to vibrancy");
-                    apply_vibrancy_fallback(window);
-                    return;
-                }
-                let glass_view: id = msg_send![alloc, initWithFrame: frame];
-                if glass_view.is_null() {
-                    eprintln!("⚠️ NSGlassEffectView initWithFrame returned null, falling back");
-                    apply_vibrancy_fallback(window);
-                    return;
-                }
-
-                // Style 16 = Sidebar (matches NSGlassEffectViewStyle::Sidebar)
-                let _: () = msg_send![glass_view, setStyle: 16_isize];
-
-                // White tint on the native glass for a frostier look
-                let tint: id = NSColor::colorWithRed_green_blue_alpha_(nil, 1.0, 1.0, 1.0, 0.0);
-                let _: () = msg_send![glass_view, setTintColor: tint];
-
-                // Make it resize with the window
-                // NSViewWidthSizable (2) | NSViewHeightSizable (16) = 18
-                let _: () = msg_send![glass_view, setAutoresizingMask: 18_u64];
-
-                // Add BELOW the WKWebView so web content renders on top
-                // NSWindowOrderingMode::Below = -1
-                let below: i64 = -1;
-                let _: () = msg_send![
-                    content_view,
-                    addSubview: glass_view
-                    positioned: below
-                    relativeTo: nil
-                ];
-
-                println!("✅ Apple Liquid Glass applied (NSGlassEffectView, style=Sidebar)");
-            } else {
-                println!("⚠️ NSGlassEffectView not available, falling back to vibrancy");
-                apply_vibrancy_fallback(window);
-            }
         },
         Err(e) => eprintln!("❌ NSWindow handle not available: {e}"),
-    }
-}
-
-#[cfg(target_os = "macos")]
-#[derive(Clone, Copy, Debug)]
-struct TrafficLightBaseline {
-    close_y: f64,
-    step: f64,
-}
-
-#[cfg(target_os = "macos")]
-fn traffic_light_baselines() -> &'static Mutex<HashMap<String, TrafficLightBaseline>> {
-    static TRAFFIC_LIGHT_BASELINES: OnceLock<Mutex<HashMap<String, TrafficLightBaseline>>> =
-        OnceLock::new();
-    TRAFFIC_LIGHT_BASELINES.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-#[cfg(target_os = "macos")]
-fn traffic_light_baseline_key(window: &tauri::WebviewWindow) -> String {
-    let scale_factor = window.scale_factor().unwrap_or(1.0);
-    format!("{}@{scale_factor:.2}", window.label())
-}
-
-#[cfg(target_os = "macos")]
-fn resolve_traffic_light_baseline(
-    window: &tauri::WebviewWindow,
-    close_frame: cocoa::foundation::NSRect,
-    minimize_frame: cocoa::foundation::NSRect,
-    zoom_frame: cocoa::foundation::NSRect,
-) -> TrafficLightBaseline {
-    let native_step_a = minimize_frame.origin.x - close_frame.origin.x;
-    let native_step_b = zoom_frame.origin.x - minimize_frame.origin.x;
-    let native_step = if native_step_a > 0.0 && native_step_b > 0.0 {
-        (native_step_a + native_step_b) / 2.0
-    } else {
-        close_frame.size.width + 6.0
-    };
-
-    let key = traffic_light_baseline_key(window);
-    let default_baseline = TrafficLightBaseline {
-        close_y: close_frame.origin.y,
-        step: native_step,
-    };
-
-    let baselines = traffic_light_baselines();
-    let mut guard = match baselines.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-    *guard.entry(key).or_insert(default_baseline)
-}
-
-/// Reposition macOS traffic lights (close/minimize/zoom) into the sidebar region.
-/// Called after window creation and on every resize, since macOS resets button
-/// positions when the window frame changes.
-#[cfg(target_os = "macos")]
-fn reposition_traffic_lights(window: &tauri::WebviewWindow) {
-    use cocoa::base::id;
-    use objc::{msg_send, sel, sel_impl};
-
-    let Ok(raw) = window.ns_window() else { return };
-    unsafe {
-        let ns_win: id = raw as id;
-        // Button constants: Close=0, Miniaturize=1, Zoom=2
-        let close: id = msg_send![ns_win, standardWindowButton: 0_u64];
-        let minimize: id = msg_send![ns_win, standardWindowButton: 1_u64];
-        let zoom: id = msg_send![ns_win, standardWindowButton: 2_u64];
-
-        if close.is_null() || minimize.is_null() || zoom.is_null() {
-            return;
-        }
-
-        let close_frame: cocoa::foundation::NSRect = msg_send![close, frame];
-        let minimize_frame: cocoa::foundation::NSRect = msg_send![minimize, frame];
-        let zoom_frame: cocoa::foundation::NSRect = msg_send![zoom, frame];
-        let baseline =
-            resolve_traffic_light_baseline(window, close_frame, minimize_frame, zoom_frame);
-
-        // Reuse the first clean native AppKit layout as the stable baseline and
-        // only reapply frame origins from it. Re-deriving target geometry from
-        // mutable container frames caused vertical drift after repeated resizes.
-        let left_inset: f64 = 14.0;
-        let vertical_nudge: f64 = 1.0;
-        let target_y = (baseline.close_y + vertical_nudge).max(0.0);
-
-        let _: () = msg_send![
-            close,
-            setFrameOrigin: cocoa::foundation::NSPoint::new(left_inset, target_y)
-        ];
-        let _: () = msg_send![
-            minimize,
-            setFrameOrigin: cocoa::foundation::NSPoint::new(left_inset + baseline.step, target_y)
-        ];
-        let _: () = msg_send![
-            zoom,
-            setFrameOrigin: cocoa::foundation::NSPoint::new(
-                left_inset + baseline.step * 2.0,
-                target_y
-            )
-        ];
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn schedule_reposition_traffic_lights(window: tauri::WebviewWindow) {
-    let immediate_window = window.clone();
-    let immediate_target = immediate_window.clone();
-    let _ = immediate_window.run_on_main_thread(move || {
-        reposition_traffic_lights(&immediate_target);
-    });
-
-    let short_delay_window = window.clone();
-    std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(40));
-        let delayed_target = short_delay_window.clone();
-        let _ = short_delay_window.run_on_main_thread(move || {
-            reposition_traffic_lights(&delayed_target);
-        });
-    });
-
-    let long_delay_window = window.clone();
-    std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(140));
-        let delayed_target = long_delay_window.clone();
-        let _ = long_delay_window.run_on_main_thread(move || {
-            reposition_traffic_lights(&delayed_target);
-        });
-    });
-}
-
-/// Fallback for macOS < 26: use traditional NSVisualEffectView vibrancy
-#[cfg(target_os = "macos")]
-fn apply_vibrancy_fallback(window: &tauri::WebviewWindow) {
-    use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectState};
-
-    match apply_vibrancy(
-        window,
-        NSVisualEffectMaterial::Sidebar,
-        Some(NSVisualEffectState::Active),
-        None,
-    ) {
-        Ok(()) => println!("✅ Fallback: NSVisualEffectView vibrancy applied (Sidebar material)"),
-        Err(e) => eprintln!("❌ Fallback vibrancy also failed: {e:?}"),
     }
 }
 
@@ -1119,6 +1165,7 @@ fn ensure_detached_sidebar_window(
 
     if let Some(sidebar) = app.get_webview_window("sidebar") {
         configure_macos_window_transparency(&sidebar);
+        sidebar_glass::install_full_window(&sidebar);
         let _ = sidebar.set_always_on_top(false);
     }
     sync_detached_sidebar_window(app, width)?;
@@ -1175,6 +1222,1017 @@ struct SidebarMainState {
     width: f64,
 }
 
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SettingsWindowPayload {
+    initial_view: String,
+}
+
+#[derive(Clone, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct VoiceHotkeySettings {
+    enabled: bool,
+    shortcut: String,
+    #[serde(default)]
+    registered: bool,
+    #[serde(default)]
+    registration_error: Option<String>,
+}
+
+impl Default for VoiceHotkeySettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            shortcut: DEFAULT_VOICE_SHORTCUT.to_string(),
+            registered: false,
+            registration_error: None,
+        }
+    }
+}
+
+#[derive(Default)]
+struct VoiceHotkeyState {
+    inner: Mutex<VoiceHotkeySettings>,
+}
+
+#[derive(Default)]
+struct VoiceHudRuntimeState {
+    active: Mutex<bool>,
+    helper: Mutex<Option<VoiceHudHelperSession>>,
+}
+
+impl VoiceHudRuntimeState {
+    fn set_active(&self, active: bool) {
+        if let Ok(mut guard) = self.active.lock() {
+            *guard = active;
+        }
+    }
+
+    fn is_active(&self) -> bool {
+        self.active.lock().map(|guard| *guard).unwrap_or(false)
+    }
+
+    fn set_helper(&self, helper: Option<VoiceHudHelperSession>) {
+        if let Ok(mut guard) = self.helper.lock() {
+            *guard = helper;
+        }
+    }
+
+    fn helper(&self) -> Option<VoiceHudHelperSession> {
+        self.helper.lock().ok().and_then(|guard| guard.clone())
+    }
+}
+
+#[derive(Clone, Debug)]
+struct VoiceHudHelperSession {
+    session_id: String,
+    state_path: PathBuf,
+    command_dir: PathBuf,
+    status_path: PathBuf,
+    log_path: PathBuf,
+    anchor_rect: Option<VoiceHudAnchorRect>,
+}
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct VoiceSessionStartPayload {
+    session_id: String,
+    target: String,
+    source: String,
+    submit_on_final: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    anchor_rect: Option<VoiceHudAnchorRect>,
+}
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct VoiceHotkeyOpenPayload {
+    source: String,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct VoiceHudAnchorRect {
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+}
+
+#[derive(Clone, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct VoiceHudVisualState {
+    session_id: String,
+    #[serde(default)]
+    is_listening: bool,
+    #[serde(default)]
+    is_processing_voice: bool,
+    #[serde(default)]
+    audio_level: Option<f64>,
+    #[serde(default)]
+    error: Option<String>,
+    #[serde(default)]
+    partial_transcript: Option<String>,
+}
+
+const SETTINGS_WINDOW_WIDTH: f64 = 780.0;
+const SETTINGS_WINDOW_HEIGHT: f64 = 552.0;
+const SETTINGS_WINDOW_MIN_WIDTH: f64 = 720.0;
+const SETTINGS_WINDOW_MIN_HEIGHT: f64 = 500.0;
+
+fn ritual_config_dir() -> Result<std::path::PathBuf, String> {
+    let dir = app_paths::data_dir();
+    std::fs::create_dir_all(&dir)
+        .map_err(|error| format!("Failed to create Ritual config directory: {error}"))?;
+    Ok(dir)
+}
+
+fn voice_hotkey_settings_path() -> Result<std::path::PathBuf, String> {
+    Ok(ritual_config_dir()?.join(VOICE_HOTKEY_SETTINGS_FILE))
+}
+
+fn sanitize_voice_hotkey_settings(mut settings: VoiceHotkeySettings) -> VoiceHotkeySettings {
+    if settings.shortcut.trim().is_empty() {
+        settings.shortcut = DEFAULT_VOICE_SHORTCUT.to_string();
+    }
+    settings.shortcut = canonical_voice_shortcut_label(&settings.shortcut)
+        .unwrap_or_else(|| settings.shortcut.trim().to_string());
+    settings.registered = false;
+    settings.registration_error = None;
+    settings
+}
+
+fn load_voice_hotkey_settings() -> VoiceHotkeySettings {
+    let Ok(path) = voice_hotkey_settings_path() else {
+        return VoiceHotkeySettings::default();
+    };
+    let Ok(raw) = std::fs::read_to_string(path) else {
+        return VoiceHotkeySettings::default();
+    };
+    serde_json::from_str::<VoiceHotkeySettings>(&raw)
+        .map(sanitize_voice_hotkey_settings)
+        .unwrap_or_default()
+}
+
+fn persist_voice_hotkey_settings(settings: &VoiceHotkeySettings) -> Result<(), String> {
+    let path = voice_hotkey_settings_path()?;
+    let mut persisted = settings.clone();
+    persisted.registered = false;
+    persisted.registration_error = None;
+    let raw = serde_json::to_string_pretty(&persisted)
+        .map_err(|error| format!("Failed to serialize voice hotkey settings: {error}"))?;
+    std::fs::write(path, raw)
+        .map_err(|error| format!("Failed to save voice hotkey settings: {error}"))
+}
+
+fn canonical_voice_shortcut_label(raw: &str) -> Option<String> {
+    let shortcut = raw.trim();
+    if shortcut.is_empty() {
+        return None;
+    }
+
+    let mut parts: Vec<String> = Vec::new();
+    let mut key: Option<String> = None;
+
+    for token in shortcut.split('+') {
+        let normalized = token.trim().to_ascii_lowercase();
+        match normalized.as_str() {
+            "alt" | "option" | "opt" => {
+                if !parts.iter().any(|part| part == "Alt") {
+                    parts.push("Alt".to_string());
+                }
+            }
+            "control" | "ctrl" => {
+                if !parts.iter().any(|part| part == "Control") {
+                    parts.push("Control".to_string());
+                }
+            }
+            "command" | "cmd" | "meta" | "super" => {
+                if !parts.iter().any(|part| part == "Command") {
+                    parts.push("Command".to_string());
+                }
+            }
+            "shift" => {
+                if !parts.iter().any(|part| part == "Shift") {
+                    parts.push("Shift".to_string());
+                }
+            }
+            "space" => key = Some("Space".to_string()),
+            "enter" | "return" => key = Some("Enter".to_string()),
+            "tab" => key = Some("Tab".to_string()),
+            value if value.len() == 1 => key = Some(value.to_ascii_uppercase()),
+            value if value.starts_with("key") && value.len() == 4 => {
+                key = Some(value[3..].to_ascii_uppercase());
+            }
+            value if value.starts_with("digit") && value.len() == 6 => {
+                key = Some(value[5..].to_string());
+            }
+            _ => {}
+        }
+    }
+
+    let key = key?;
+    if parts.is_empty() {
+        return None;
+    }
+    parts.push(key);
+    Some(parts.join("+"))
+}
+
+fn parse_voice_shortcut(raw: &str) -> Result<Shortcut, String> {
+    let shortcut = raw.trim();
+    if shortcut.is_empty() {
+        return Err("Shortcut cannot be empty.".to_string());
+    }
+
+    let mut modifiers = Modifiers::empty();
+    let mut code: Option<Code> = None;
+
+    for token in shortcut.split('+') {
+        let normalized = token.trim().to_ascii_lowercase();
+        match normalized.as_str() {
+            "alt" | "option" | "opt" => modifiers.insert(Modifiers::ALT),
+            "control" | "ctrl" => modifiers.insert(Modifiers::CONTROL),
+            "command" | "cmd" | "meta" | "super" => modifiers.insert(Modifiers::SUPER),
+            "shift" => modifiers.insert(Modifiers::SHIFT),
+            "space" => code = Some(Code::Space),
+            "enter" | "return" => code = Some(Code::Enter),
+            "tab" => code = Some(Code::Tab),
+            value => {
+                if let Some(next_code) = parse_voice_shortcut_key_code(value) {
+                    code = Some(next_code);
+                }
+            }
+        }
+    }
+
+    if modifiers.is_empty() {
+        return Err("Shortcut must include at least one modifier.".to_string());
+    }
+
+    let code = code.ok_or_else(|| "Shortcut must include a key.".to_string())?;
+    Ok(Shortcut::new(Some(modifiers), code))
+}
+
+fn parse_voice_shortcut_key_code(value: &str) -> Option<Code> {
+    let key = value
+        .strip_prefix("key")
+        .or_else(|| value.strip_prefix("digit"))
+        .unwrap_or(value)
+        .to_ascii_uppercase();
+
+    match key.as_str() {
+        "A" => Some(Code::KeyA),
+        "B" => Some(Code::KeyB),
+        "C" => Some(Code::KeyC),
+        "D" => Some(Code::KeyD),
+        "E" => Some(Code::KeyE),
+        "F" => Some(Code::KeyF),
+        "G" => Some(Code::KeyG),
+        "H" => Some(Code::KeyH),
+        "I" => Some(Code::KeyI),
+        "J" => Some(Code::KeyJ),
+        "K" => Some(Code::KeyK),
+        "L" => Some(Code::KeyL),
+        "M" => Some(Code::KeyM),
+        "N" => Some(Code::KeyN),
+        "O" => Some(Code::KeyO),
+        "P" => Some(Code::KeyP),
+        "Q" => Some(Code::KeyQ),
+        "R" => Some(Code::KeyR),
+        "S" => Some(Code::KeyS),
+        "T" => Some(Code::KeyT),
+        "U" => Some(Code::KeyU),
+        "V" => Some(Code::KeyV),
+        "W" => Some(Code::KeyW),
+        "X" => Some(Code::KeyX),
+        "Y" => Some(Code::KeyY),
+        "Z" => Some(Code::KeyZ),
+        "0" => Some(Code::Digit0),
+        "1" => Some(Code::Digit1),
+        "2" => Some(Code::Digit2),
+        "3" => Some(Code::Digit3),
+        "4" => Some(Code::Digit4),
+        "5" => Some(Code::Digit5),
+        "6" => Some(Code::Digit6),
+        "7" => Some(Code::Digit7),
+        "8" => Some(Code::Digit8),
+        "9" => Some(Code::Digit9),
+        _ => None,
+    }
+}
+
+fn register_voice_hotkey(
+    app: &tauri::AppHandle,
+    state: tauri::State<VoiceHotkeyState>,
+    settings: VoiceHotkeySettings,
+) -> VoiceHotkeySettings {
+    let mut next = sanitize_voice_hotkey_settings(settings);
+    if let Err(error) = app.global_shortcut().unregister_all() {
+        warn!(error = %error, "Failed to unregister previous voice shortcut");
+    }
+
+    if !next.enabled {
+        let mut guard = state.inner.lock().expect("voice hotkey state poisoned");
+        *guard = next.clone();
+        return next;
+    }
+
+    match parse_voice_shortcut(&next.shortcut).and_then(|shortcut| {
+        app.global_shortcut()
+            .register(shortcut)
+            .map_err(|error| format!("Failed to register shortcut: {error}"))
+    }) {
+        Ok(()) => {
+            next.registered = true;
+            next.registration_error = None;
+        }
+        Err(error) => {
+            next.registered = false;
+            next.registration_error = Some(error);
+        }
+    }
+
+    let mut guard = state.inner.lock().expect("voice hotkey state poisoned");
+    *guard = next.clone();
+    next
+}
+
+fn initialize_voice_hotkey(app: &tauri::AppHandle) {
+    let settings = load_voice_hotkey_settings();
+    let state = app.state::<VoiceHotkeyState>();
+    let registered = register_voice_hotkey(app, state, settings);
+    if let Some(error) = &registered.registration_error {
+        warn!(error = %error, shortcut = %registered.shortcut, "Voice shortcut registration failed");
+    } else if registered.enabled {
+        info!(shortcut = %registered.shortcut, "Voice shortcut registered");
+    }
+}
+
+fn normalize_voice_target(target: String) -> String {
+    match target.as_str() {
+        "habit-log" | "chat-query" => target,
+        _ => "chat-query".to_string(),
+    }
+}
+
+fn normalize_voice_source(source: Option<String>) -> String {
+    match source.as_deref().unwrap_or("composer") {
+        "hotkey" => "hotkey".to_string(),
+        _ => "composer".to_string(),
+    }
+}
+
+fn build_voice_session_payload(
+    target: String,
+    source: Option<String>,
+    submit_on_final: Option<bool>,
+    anchor_rect: Option<VoiceHudAnchorRect>,
+) -> VoiceSessionStartPayload {
+    let timestamp = chrono::Utc::now().timestamp_millis();
+    VoiceSessionStartPayload {
+        session_id: format!("voice-{timestamp}"),
+        target: normalize_voice_target(target),
+        source: normalize_voice_source(source),
+        submit_on_final: submit_on_final.unwrap_or(false),
+        anchor_rect,
+    }
+}
+
+fn desktop_local_spa_webview_url() -> Result<tauri::WebviewUrl, String> {
+    if !should_use_local_shell_window() {
+        let url = format!("{}/", DESKTOP_SHELL_DEV_URL.trim_end_matches('/'));
+        return url
+            .parse()
+            .map(tauri::WebviewUrl::External)
+            .map_err(|error| format!("Invalid local SPA URL: {error}"));
+    }
+    Ok(tauri::WebviewUrl::App("index.html".into()))
+}
+
+fn voice_hud_window_init_script(
+    payload: &VoiceSessionStartPayload,
+    native_hud: bool,
+) -> String {
+    let session_id =
+        serde_json::to_string(&payload.session_id).unwrap_or_else(|_| "\"\"".to_string());
+    let target =
+        serde_json::to_string(&payload.target).unwrap_or_else(|_| "\"chat-query\"".to_string());
+    let source =
+        serde_json::to_string(&payload.source).unwrap_or_else(|_| "\"composer\"".to_string());
+    let native_flag = if native_hud { "1" } else { "0" };
+    format!(
+        r#"(function () {{
+  try {{
+    var next = new URL(window.location.href);
+    next.searchParams.set("ritual_voice_hud_window", "1");
+    next.searchParams.set("ritual_native_voice_hud", "{native_flag}");
+    next.searchParams.set("sessionId", {session_id});
+    next.searchParams.set("target", {target});
+    next.searchParams.set("source", {source});
+    document.documentElement.dataset.voiceHudWindow = "1";
+    history.replaceState(null, "", next.pathname + next.search + next.hash);
+  }} catch (_error) {{}}
+}})();"#
+    )
+}
+
+fn voice_hud_session_is_current(app: &tauri::AppHandle, session_id: &str) -> bool {
+    app.try_state::<VoiceHudRuntimeState>()
+        .and_then(|state| state.helper())
+        .is_some_and(|helper| helper.session_id == session_id)
+}
+
+fn initial_voice_hud_visual_state(payload: &VoiceSessionStartPayload) -> VoiceHudVisualState {
+    VoiceHudVisualState {
+        session_id: payload.session_id.clone(),
+        is_listening: true,
+        is_processing_voice: false,
+        audio_level: Some(0.18),
+        error: None,
+        partial_transcript: None,
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct VoiceHudHelperStatus {
+    session_id: String,
+    event: String,
+    width: f64,
+    height: f64,
+}
+
+#[cfg(target_os = "macos")]
+fn voice_hud_helper_available_at(helper_app: &Path) -> bool {
+    helper_app
+        .join("Contents")
+        .join("MacOS")
+        .join(VOICE_HUD_HELPER_EXECUTABLE)
+        .is_file()
+}
+
+#[cfg(target_os = "macos")]
+fn voice_hud_helper_app_path() -> PathBuf {
+    let dev_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")))
+        .join(".tauri-helper")
+        .join(VOICE_HUD_HELPER_APP_NAME);
+    if voice_hud_helper_available_at(&dev_path) {
+        return dev_path;
+    }
+
+    if let Ok(current_exe) = std::env::current_exe() {
+        if let Some(contents_dir) = current_exe
+            .ancestors()
+            .find(|path| path.file_name().and_then(|name| name.to_str()) == Some("Contents"))
+        {
+            let resource_path = contents_dir
+                .join("Resources")
+                .join("native")
+                .join("bin")
+                .join(VOICE_HUD_HELPER_APP_NAME);
+            if voice_hud_helper_available_at(&resource_path) {
+                return resource_path;
+            }
+        }
+    }
+
+    dev_path
+}
+
+#[cfg(target_os = "macos")]
+fn voice_hud_helper_temp_dir(session_id: &str) -> Result<PathBuf, String> {
+    let dir = std::env::temp_dir()
+        .join("ritual-voice-hud")
+        .join(session_id);
+    std::fs::create_dir_all(&dir)
+        .map_err(|error| format!("Failed to create voice HUD helper temp directory: {error}"))?;
+    Ok(dir)
+}
+
+#[cfg(target_os = "macos")]
+fn write_voice_hud_helper_state(
+    session: &VoiceHudHelperSession,
+    state: &VoiceHudVisualState,
+) -> Result<(), String> {
+    let json = serde_json::to_string(state)
+        .map_err(|error| format!("Failed to serialize native voice HUD state: {error}"))?;
+    std::fs::write(&session.state_path, json)
+        .map_err(|error| format!("Failed to write native voice HUD state: {error}"))
+}
+
+#[cfg(target_os = "macos")]
+fn read_voice_hud_helper_status(path: &Path) -> Option<VoiceHudHelperStatus> {
+    let data = std::fs::read(path).ok()?;
+    serde_json::from_slice(&data).ok()
+}
+
+#[cfg(target_os = "macos")]
+fn wait_for_voice_hud_helper_shown(session: &VoiceHudHelperSession) -> bool {
+    let started = Instant::now();
+    while started.elapsed() < Duration::from_secs(2) {
+        if let Some(status) = read_voice_hud_helper_status(&session.status_path) {
+            if status.session_id == session.session_id
+                && status.event == "shown"
+                && status.width >= 400.0
+                && status.height >= 100.0
+            {
+                return true;
+            }
+        }
+        thread::sleep(Duration::from_millis(40));
+    }
+    false
+}
+
+#[cfg(target_os = "macos")]
+fn create_voice_hud_helper_session(
+    payload: &VoiceSessionStartPayload,
+    state: &VoiceHudVisualState,
+) -> Result<VoiceHudHelperSession, String> {
+    let dir = voice_hud_helper_temp_dir(&payload.session_id)?;
+    let command_dir = dir.join("commands");
+    std::fs::create_dir_all(&command_dir)
+        .map_err(|error| format!("Failed to create voice HUD command directory: {error}"))?;
+    let session = VoiceHudHelperSession {
+        session_id: payload.session_id.clone(),
+        state_path: dir.join("state.json"),
+        command_dir,
+        status_path: dir.join("status.json"),
+        log_path: dir.join("helper.log"),
+        anchor_rect: payload.anchor_rect.clone(),
+    };
+    let _ = std::fs::remove_file(&session.status_path);
+    let _ = std::fs::remove_file(session.command_dir.join("stop"));
+    let _ = std::fs::remove_file(session.command_dir.join("cancel"));
+    let _ = std::fs::remove_file(session.command_dir.join("quit"));
+    write_voice_hud_helper_state(&session, state)?;
+    Ok(session)
+}
+
+#[cfg(target_os = "macos")]
+fn launch_voice_hud_helper(session: &VoiceHudHelperSession) -> Result<(), String> {
+    let helper_app = voice_hud_helper_app_path();
+    if !voice_hud_helper_available_at(&helper_app) {
+        return Err(format!(
+            "Voice HUD helper is not bundled at {}",
+            helper_app.display()
+        ));
+    }
+
+    let mut command = Command::new("/usr/bin/open");
+    command
+        .arg("-n")
+        .arg(&helper_app)
+        .arg("--args")
+        .arg("--session")
+        .arg(&session.session_id)
+        .arg("--state")
+        .arg(&session.state_path)
+        .arg("--command-dir")
+        .arg(&session.command_dir)
+        .arg("--status")
+        .arg(&session.status_path)
+        .arg("--log")
+        .arg(&session.log_path);
+
+    if let Some(anchor) = &session.anchor_rect {
+        command
+            .arg("--anchor-x")
+            .arg(anchor.x.to_string())
+            .arg("--anchor-y")
+            .arg(anchor.y.to_string())
+            .arg("--anchor-width")
+            .arg(anchor.width.to_string())
+            .arg("--anchor-height")
+            .arg(anchor.height.to_string());
+    }
+
+    let status = command
+        .status()
+        .map_err(|error| format!("Failed to launch voice HUD helper: {error}"))?;
+
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("Voice HUD helper launch failed: {status}"))
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn emit_voice_hud_control_event_with_retry(app: &tauri::AppHandle, event: &str) {
+    for _ in 0..30 {
+        if emit_voice_hud_control_event(app, event) {
+            return;
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn spawn_voice_hud_command_monitor(app: tauri::AppHandle, session: VoiceHudHelperSession) {
+    thread::spawn(move || {
+        let stop_path = session.command_dir.join("stop");
+        let cancel_path = session.command_dir.join("cancel");
+        loop {
+            let still_current = app
+                .try_state::<VoiceHudRuntimeState>()
+                .and_then(|state| state.helper())
+                .is_some_and(|helper| helper.session_id == session.session_id);
+            if !still_current {
+                break;
+            }
+
+            if stop_path.exists() {
+                let _ = std::fs::remove_file(&stop_path);
+                emit_voice_hud_control_event_with_retry(&app, VOICE_EVENTS_STOP_REQUEST);
+            }
+
+            if cancel_path.exists() {
+                let _ = std::fs::remove_file(&cancel_path);
+                let _ = emit_voice_hud_control_event(&app, VOICE_EVENTS_CANCEL_REQUEST);
+                dismiss_voice_hud(&app);
+                break;
+            }
+
+            thread::sleep(Duration::from_millis(50));
+        }
+    });
+}
+
+#[cfg(target_os = "macos")]
+fn show_native_voice_hud(app: &tauri::AppHandle, payload: &VoiceSessionStartPayload) -> bool {
+    let state = initial_voice_hud_visual_state(payload);
+    let session = match create_voice_hud_helper_session(payload, &state) {
+        Ok(session) => session,
+        Err(error) => {
+            warn!(error = %error, "Failed to prepare native voice HUD helper");
+            return false;
+        }
+    };
+
+    if let Err(error) = launch_voice_hud_helper(&session) {
+        warn!(error = %error, "Failed to launch native voice HUD helper");
+        return false;
+    }
+
+    if !wait_for_voice_hud_helper_shown(&session) {
+        warn!("Native voice HUD helper did not report visible bounds; falling back to web HUD");
+        let _ = std::fs::write(session.command_dir.join("quit"), "");
+        return false;
+    }
+
+    app.state::<VoiceHudRuntimeState>()
+        .set_helper(Some(session.clone()));
+    spawn_voice_hud_command_monitor(app.clone(), session);
+    true
+}
+
+#[cfg(not(target_os = "macos"))]
+fn show_native_voice_hud(_app: &tauri::AppHandle, _payload: &VoiceSessionStartPayload) -> bool {
+    false
+}
+
+#[cfg(target_os = "macos")]
+fn update_native_voice_hud(app: &tauri::AppHandle, state: &VoiceHudVisualState) -> bool {
+    let Some(session) = app.state::<VoiceHudRuntimeState>().helper() else {
+        return false;
+    };
+    if session.session_id != state.session_id {
+        return false;
+    }
+    if let Err(error) = write_voice_hud_helper_state(&session, state) {
+        warn!(error = %error, "Failed to update native voice HUD helper");
+        return false;
+    }
+    true
+}
+
+#[cfg(not(target_os = "macos"))]
+fn update_native_voice_hud(_app: &tauri::AppHandle, _state: &VoiceHudVisualState) -> bool {
+    false
+}
+
+#[cfg(target_os = "macos")]
+fn hide_native_voice_hud(app: &tauri::AppHandle) {
+    if let Some(session) = app.state::<VoiceHudRuntimeState>().helper() {
+        let _ = std::fs::write(session.command_dir.join("quit"), "");
+    }
+    app.state::<VoiceHudRuntimeState>().set_helper(None);
+}
+
+#[cfg(not(target_os = "macos"))]
+fn hide_native_voice_hud(_app: &tauri::AppHandle) {}
+
+fn emit_voice_hud_control_event(app: &tauri::AppHandle, event: &str) -> bool {
+    if let Some(window) = app.get_webview_window("voice-hud") {
+        let _ = window.emit(event, ());
+        return true;
+    }
+    false
+}
+
+fn resize_voice_hud_window(window: &tauri::WebviewWindow) {
+    let size = tauri::Size::Logical(tauri::LogicalSize {
+        width: VOICE_HUD_WINDOW_WIDTH,
+        height: VOICE_HUD_WINDOW_HEIGHT,
+    });
+    let _ = window.set_size(size);
+}
+
+fn hide_voice_hud_window(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("voice-hud") {
+        let _ = window.hide();
+    }
+}
+
+fn dismiss_voice_hud(app: &tauri::AppHandle) {
+    hide_voice_hud_window(app);
+    app.state::<VoiceHudRuntimeState>().set_active(false);
+    hide_native_voice_hud(app);
+    sync_macos_dock_icon_to_window_visibility(app);
+}
+
+fn configure_voice_hud_window(window: &tauri::WebviewWindow, native_hud_shown: bool) {
+    resize_voice_hud_window(window);
+    if native_hud_shown {
+        let _ = window.hide();
+        return;
+    }
+    let _ = window.center();
+    let _ = window.show();
+    let _ = window.unminimize();
+    let _ = window.set_focus();
+}
+
+fn show_voice_hud_window(
+    app: &tauri::AppHandle,
+    payload: VoiceSessionStartPayload,
+) -> Result<VoiceSessionStartPayload, String> {
+    hide_native_voice_hud(app);
+
+    let native_hud_shown = show_native_voice_hud(app, &payload);
+    app.state::<VoiceHudRuntimeState>()
+        .set_active(native_hud_shown);
+
+    if native_hud_shown && !voice_hud_session_is_current(app, &payload.session_id) {
+        return Ok(payload);
+    }
+
+    if let Some(window) = app.get_webview_window("voice-hud") {
+        configure_voice_hud_window(&window, native_hud_shown);
+        let _ = window.emit(VOICE_EVENTS_START, payload.clone());
+        if native_hud_shown && !voice_hud_session_is_current(app, &payload.session_id) {
+            hide_voice_hud_window(app);
+        }
+        return Ok(payload);
+    }
+
+    let window = tauri::WebviewWindowBuilder::new(
+        app,
+        "voice-hud",
+        desktop_local_spa_webview_url()?,
+    )
+    .initialization_script(voice_hud_window_init_script(&payload, native_hud_shown))
+    .user_agent(DESKTOP_WEBVIEW_USER_AGENT)
+    .title("")
+    .inner_size(VOICE_HUD_WINDOW_WIDTH, VOICE_HUD_WINDOW_HEIGHT)
+    .min_inner_size(VOICE_HUD_WINDOW_WIDTH, VOICE_HUD_WINDOW_HEIGHT)
+    .max_inner_size(VOICE_HUD_WINDOW_WIDTH, VOICE_HUD_WINDOW_HEIGHT)
+    .resizable(false)
+    .decorations(false)
+    .transparent(true)
+    .shadow(false)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .visible(!native_hud_shown)
+    .focused(!native_hud_shown)
+    .build()
+    .map_err(|error| format!("Failed to create voice HUD window: {error}"))?;
+
+    configure_voice_hud_window(&window, native_hud_shown);
+    let _ = window.emit(VOICE_EVENTS_START, payload.clone());
+    if native_hud_shown && !voice_hud_session_is_current(app, &payload.session_id) {
+        hide_voice_hud_window(app);
+    }
+    Ok(payload)
+}
+
+const VOICE_EVENTS_START: &str = "voice:start";
+const VOICE_EVENTS_STOP_REQUEST: &str = "voice:stop-request";
+const VOICE_EVENTS_CANCEL_REQUEST: &str = "voice:cancel-request";
+const VOICE_EVENTS_HOTKEY_OPEN: &str = "voice:hotkey-open";
+
+fn handle_voice_hotkey(app: &tauri::AppHandle) {
+    let native_active = app
+        .try_state::<VoiceHudRuntimeState>()
+        .map(|state| state.is_active())
+        .unwrap_or(false);
+    if native_active {
+        emit_voice_hud_control_event(app, VOICE_EVENTS_STOP_REQUEST);
+        return;
+    }
+
+    if let Some(hud) = app.get_webview_window("voice-hud") {
+        if hud.is_visible().unwrap_or(false) {
+            let _ = hud.emit(VOICE_EVENTS_STOP_REQUEST, ());
+            let _ = hud.set_focus();
+            return;
+        }
+    }
+
+    if let Some(main) = app.get_webview_window("main") {
+        let _ = main.emit(
+            VOICE_EVENTS_HOTKEY_OPEN,
+            VoiceHotkeyOpenPayload {
+                source: "hotkey".to_string(),
+            },
+        );
+        return;
+    }
+
+    let payload = build_voice_session_payload(
+        "chat-query".to_string(),
+        Some("hotkey".to_string()),
+        Some(false),
+        None,
+    );
+    let _ = show_voice_hud_window(app, payload);
+}
+
+#[tauri::command]
+fn open_voice_hud(
+    app: tauri::AppHandle,
+    target: String,
+    source: Option<String>,
+    submit_on_final: Option<bool>,
+    anchor_rect: Option<VoiceHudAnchorRect>,
+) -> Result<VoiceSessionStartPayload, String> {
+    let payload = build_voice_session_payload(target, source, submit_on_final, anchor_rect);
+    show_voice_hud_window(&app, payload)
+}
+
+#[tauri::command]
+fn hide_voice_hud(app: tauri::AppHandle) -> Result<(), String> {
+    dismiss_voice_hud(&app);
+    Ok(())
+}
+
+#[tauri::command]
+fn update_voice_hud_state(app: tauri::AppHandle, state: VoiceHudVisualState) -> Result<(), String> {
+    if app.state::<VoiceHudRuntimeState>().is_active() {
+        let _ = update_native_voice_hud(&app, &state);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn get_voice_hotkey_settings(
+    state: tauri::State<VoiceHotkeyState>,
+) -> Result<VoiceHotkeySettings, String> {
+    let guard = state
+        .inner
+        .lock()
+        .map_err(|_| "Voice hotkey state poisoned".to_string())?;
+    Ok(guard.clone())
+}
+
+#[tauri::command]
+fn set_voice_hotkey_settings(
+    app: tauri::AppHandle,
+    state: tauri::State<VoiceHotkeyState>,
+    settings: VoiceHotkeySettings,
+) -> Result<VoiceHotkeySettings, String> {
+    let next = sanitize_voice_hotkey_settings(settings);
+    persist_voice_hotkey_settings(&next)?;
+    Ok(register_voice_hotkey(&app, state, next))
+}
+
+fn normalize_settings_view(view: Option<String>) -> String {
+    match view.as_deref().unwrap_or("account") {
+        "account" | "sounds" | "privacy" | "voice" | "computer-tracking" | "place-tagging"
+        | "apple-health" => view.unwrap_or_else(|| "account".to_string()),
+        _ => "account".to_string(),
+    }
+}
+
+fn desktop_settings_window_webview_url() -> Result<tauri::WebviewUrl, String> {
+    desktop_local_spa_webview_url()
+}
+
+fn settings_window_init_script(initial_view: &str) -> String {
+    let view = serde_json::to_string(initial_view).unwrap_or_else(|_| "\"account\"".to_string());
+    format!(
+        r#"(function () {{
+  try {{
+    var next = new URL(window.location.href);
+    next.searchParams.set("ritual_settings_window", "1");
+    next.searchParams.set("view", {view});
+    document.documentElement.dataset.settingsWindow = "1";
+    history.replaceState(null, "", next.pathname + next.search + next.hash);
+  }} catch (_error) {{}}
+}})();"#
+    )
+}
+
+fn resize_settings_window(settings: &tauri::WebviewWindow) {
+    let _ = settings.set_size(tauri::Size::Logical(tauri::LogicalSize {
+        width: SETTINGS_WINDOW_WIDTH,
+        height: SETTINGS_WINDOW_HEIGHT,
+    }));
+}
+
+fn center_settings_window_over_main(
+    app: &tauri::AppHandle,
+    settings: &tauri::WebviewWindow,
+) -> Result<(), String> {
+    let main = app
+        .get_webview_window("main")
+        .ok_or_else(|| "Main window not found".to_string())?;
+    let main_pos = main
+        .outer_position()
+        .map_err(|e| format!("Failed to read main window position: {e}"))?;
+    let main_size = main
+        .outer_size()
+        .map_err(|e| format!("Failed to read main window size: {e}"))?;
+    let settings_size = settings
+        .outer_size()
+        .map_err(|e| format!("Failed to read settings window size: {e}"))?;
+
+    let x = main_pos.x + ((main_size.width as i32 - settings_size.width as i32) / 2);
+    let y = main_pos.y + ((main_size.height as i32 - settings_size.height as i32) / 2);
+    settings
+        .set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }))
+        .map_err(|e| format!("Failed to position settings window: {e}"))?;
+
+    Ok(())
+}
+
+#[tauri::command]
+fn open_settings_window(app: tauri::AppHandle, initial_view: Option<String>) -> Result<(), String> {
+    show_ritual_with_dock_icon(&app)?;
+    let initial_view = normalize_settings_view(initial_view);
+    let payload = SettingsWindowPayload {
+        initial_view: initial_view.clone(),
+    };
+
+    if let Some(settings) = app.get_webview_window("settings") {
+        resize_settings_window(&settings);
+        if center_settings_window_over_main(&app, &settings).is_err() {
+            let _ = settings.center();
+        }
+        let _ = settings.show();
+        let _ = settings.unminimize();
+        let _ = settings.set_focus();
+        let _ = settings.emit("settings:show", payload);
+        return Ok(());
+    }
+
+    let settings_webview_url = desktop_settings_window_webview_url()?;
+
+    let mut builder = tauri::WebviewWindowBuilder::new(
+        &app,
+        "settings",
+        settings_webview_url,
+    )
+    .initialization_script(settings_window_init_script(&initial_view))
+    .user_agent(DESKTOP_WEBVIEW_USER_AGENT)
+    .title("Settings")
+    .inner_size(SETTINGS_WINDOW_WIDTH, SETTINGS_WINDOW_HEIGHT)
+    .min_inner_size(SETTINGS_WINDOW_MIN_WIDTH, SETTINGS_WINDOW_MIN_HEIGHT)
+    .resizable(true)
+    .decorations(true)
+    .transparent(false)
+    .shadow(true)
+    .visible(true)
+    .focused(true);
+
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder
+            .title_bar_style(tauri::TitleBarStyle::Overlay)
+            .hidden_title(true);
+    }
+
+    let settings = builder
+        .build()
+        .map_err(|error| format!("Failed to create settings window: {error}"))?;
+    if center_settings_window_over_main(&app, &settings).is_err() {
+        let _ = settings.center();
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        configure_macos_native_window_chrome(&settings);
+    }
+
+    let _ = settings.emit("settings:show", payload);
+    Ok(())
+}
+
 #[tauri::command]
 fn sidebar_get_main_state(
     app: tauri::AppHandle,
@@ -1197,10 +2255,58 @@ fn sidebar_get_main_state(
     Ok(SidebarMainState { path, width })
 }
 
-/// Show the main window (called from frontend when React is ready)
+fn show_ritual_with_dock_icon<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        app.set_activation_policy(tauri::ActivationPolicy::Regular)
+            .map_err(|error| format!("Failed to show Ritual in the Dock: {error}"))?;
+        app.show()
+            .map_err(|error| format!("Failed to show Ritual application: {error}"))?;
+    }
+    Ok(())
+}
+
+fn keep_ritual_resident_without_dock_icon<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    app.set_activation_policy(tauri::ActivationPolicy::Accessory)
+        .map_err(|error| format!("Failed to hide Ritual from the Dock: {error}"))?;
+    Ok(())
+}
+
+fn sync_macos_dock_icon_to_window_visibility<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
+    #[cfg(target_os = "macos")]
+    {
+        let has_visible_window = ["main", "settings", "sidebar", "voice-hud"]
+            .iter()
+            .filter_map(|label| app.get_webview_window(label))
+            .any(|window| window.is_visible().unwrap_or(false));
+        let result = if has_visible_window {
+            show_ritual_with_dock_icon(app)
+        } else {
+            keep_ritual_resident_without_dock_icon(app)
+        };
+        if let Err(error) = result {
+            warn!(error = %error, "Failed synchronizing Ritual Dock visibility");
+        }
+    }
+}
+
+/// Show the main window. HTML and the webview init script call this so a Dock
+/// click does not wait on React. A login launch stays hidden.
 #[tauri::command]
-#[instrument(skip(window))]
-fn show_main_window(window: tauri::WebviewWindow) -> Result<(), String> {
+#[instrument(skip(window, resident))]
+fn show_main_window(
+    window: tauri::WebviewWindow,
+    resident: tauri::State<resident_runtime::ResidentRuntimeStore>,
+) -> Result<(), String> {
+    // The hosted dashboard announces readiness on every load. A login launch
+    // must not become visible merely because its hidden auth webview mounted.
+    if resident.background_launch {
+        return Ok(());
+    }
+    show_ritual_with_dock_icon(window.app_handle())?;
     window
         .show()
         .map_err(|e| format!("Failed to show window: {}", e))?;
@@ -1208,6 +2314,22 @@ fn show_main_window(window: tauri::WebviewWindow) -> Result<(), String> {
         .set_focus()
         .map_err(|e| format!("Failed to focus window: {}", e))?;
     Ok(())
+}
+
+fn show_main_window_for_app<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<(), String> {
+    show_ritual_with_dock_icon(app)?;
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "Main Ritual window is unavailable".to_string())?;
+    window
+        .show()
+        .map_err(|error| format!("Failed to show Ritual window: {error}"))?;
+    if let Some(sidebar) = app.get_webview_window("sidebar") {
+        let _ = sidebar.show();
+    }
+    window
+        .set_focus()
+        .map_err(|error| format!("Failed to focus Ritual window: {error}"))
 }
 
 /// Read saved watcher config for auto-start
@@ -1218,8 +2340,14 @@ fn read_watcher_config() -> Option<watcher::WatcherConfig> {
 /// Save watcher config for auto-start (called from frontend)
 #[tauri::command]
 #[instrument(skip(config), fields(device_id = %config.device_id, user_id = %config.user_id))]
-fn save_watcher_config_cmd(config: watcher::WatcherConfig) -> Result<(), String> {
+fn save_watcher_config_cmd(
+    app: tauri::AppHandle,
+    config: watcher::WatcherConfig,
+) -> Result<(), String> {
     watcher::save_watcher_config(&config)?;
+    app.state::<resident_runtime::ResidentRuntimeStore>()
+        .record_legacy_tracking_intent(true)?;
+    let _ = resident_runtime::refresh_tray_menu(&app);
     info!("Watcher config saved for auto-start");
     Ok(())
 }
@@ -1227,8 +2355,11 @@ fn save_watcher_config_cmd(config: watcher::WatcherConfig) -> Result<(), String>
 /// Clear watcher config (disable auto-start) (called from frontend)
 #[tauri::command]
 #[instrument]
-fn clear_watcher_config_cmd() -> Result<(), String> {
+fn clear_watcher_config_cmd(app: tauri::AppHandle) -> Result<(), String> {
     watcher::clear_watcher_config()?;
+    app.state::<resident_runtime::ResidentRuntimeStore>()
+        .record_legacy_tracking_intent(false)?;
+    let _ = resident_runtime::refresh_tray_menu(&app);
     info!("Watcher config cleared (auto-start disabled)");
     Ok(())
 }
@@ -1255,10 +2386,10 @@ fn reconcile_watcher_config_user_cmd(user_id: String) -> Result<bool, String> {
         "Reconciling watcher config user"
     );
     config.user_id = trimmed_user_id.to_string();
-    save_watcher_config_cmd(config.clone())?;
+    watcher::save_watcher_config(&config)?;
 
-    if watcher::check_accessibility_permission() {
-        match watcher::start_watcher_sync(config) {
+    if watcher::permissions::check_accessibility_permission() {
+        match watcher::lifecycle::start_watcher_sync(config) {
             Ok(status) => {
                 info!(
                     pid = status.pid,
@@ -1283,11 +2414,42 @@ fn main() {
     info!("Starting Ritual desktop app");
     let shell_feature_flags = DesktopShellFeatureFlags::from_env();
     shell_feature_flags.log_effective_values();
+    let background_launch = env::args().any(|argument| argument == "--background");
 
-    let builder = tauri::Builder::default()
+    // This plugin is intentionally first: all later startup paths assume there
+    // can be only one resident native host and one watcher sidecar.
+    let builder =
+        tauri::Builder::default().plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Err(error) = show_main_window_for_app(app) {
+                warn!(error = %error, "Failed to reveal Ritual from second-instance launch");
+            }
+        }));
+    #[cfg(any(debug_assertions, feature = "qa-tools"))]
+    let builder = builder.on_menu_event(|app, event| {
+        if event.id().as_ref() == "reload_main_webview" {
+            reload_focused_main_webview(app);
+        }
+    });
+    let builder = builder
+        .plugin({
+            let builder = tauri_plugin_autostart::Builder::new().arg("--background");
+            #[cfg(target_os = "macos")]
+            let builder =
+                builder.macos_launcher(tauri_plugin_autostart::MacosLauncher::LaunchAgent);
+            builder.build()
+        })
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, _shortcut, event| {
+                    if matches!(event.state(), ShortcutState::Pressed) {
+                        handle_voice_hotkey(app);
+                    }
+                })
+                .build(),
+        )
         .plugin(tauri_plugin_updater::Builder::new().build());
     #[cfg(target_os = "macos")]
     let builder = builder.plugin(tauri_plugin_deep_link::init());
@@ -1296,18 +2458,30 @@ fn main() {
 
     builder
         .manage(SidebarWindowState::default())
+        .manage(sidebar_glass::SidebarGlassState::default())
+        .manage(VoiceHotkeyState::default())
+        .manage(VoiceHudRuntimeState::default())
         .manage(shell_feature_flags)
         .manage(desktop_runtime::DesktopShellState::default())
+        .manage(resident_runtime::ResidentRuntimeStore::load(
+            background_launch,
+        ))
         // Only expose native macOS features - auth is handled by Clerk
         .invoke_handler(tauri::generate_handler![
             // Window management
             show_main_window,
+            open_settings_window,
+            open_voice_hud,
+            hide_voice_hud,
+            update_voice_hud_state,
+            get_voice_hotkey_settings,
+            set_voice_hotkey_settings,
             sidebar_set_width,
             sidebar_navigate,
             sidebar_get_main_state,
+            sidebar_glass::sync_sidebar_glass_width,
             // Desktop runtime bridge commands
             native_widget::write_auth_token_to_file,
-            native_widget::write_turso_sync_config,
             native_widget::check_runtime_bridge_signals,
             native_widget::check_dashboard_refresh_trigger,
             native_widget::check_token_refresh_request,
@@ -1320,76 +2494,132 @@ fn main() {
             native_widget::get_native_speech_state,
             native_widget::clear_native_speech_state,
             // Ritual Watcher commands for computer activity tracking
-            watcher::check_accessibility_permission,
-            watcher::request_accessibility_permission,
-            watcher::start_watcher,
-            watcher::stop_watcher,
-            watcher::get_watcher_status,
-            watcher::open_accessibility_settings,
+            watcher::permissions::check_accessibility_permission,
+            watcher::permissions::request_accessibility_permission,
+            watcher::lifecycle::start_watcher,
+            watcher::lifecycle::stop_watcher,
+            watcher::lifecycle::get_watcher_status,
+            watcher::permissions::open_accessibility_settings,
+            watcher::permissions::open_full_disk_access_settings,
+            watcher::permissions::open_microphone_settings,
+            watcher::permissions::open_speech_recognition_settings,
+            watcher::permissions::open_screen_recording_settings,
+            watcher::permissions::open_location_settings,
             // Local activity queries (for detailed view with full URLs/titles)
-            watcher::get_detailed_activity,
-            watcher::get_daily_summaries,
-            // Real-time status
-            watcher::get_watcher_extended_status,
-            watcher::get_browser_extension_diagnostics,
-            // Watchdog - auto-restart hung watcher
-            watcher::check_and_restart_watcher_if_hung,
+            watcher::queries::get_detailed_activity,
+            watcher::queries::get_daily_summaries,
+            activity_rollups::get_local_computer_activity_snapshot,
+            watcher::diagnostics::get_browser_extension_diagnostics,
             // App icon extraction
-            watcher::get_app_icon,
-            watcher::get_app_icons_batch,
+            watcher::icons::get_app_icon,
+            watcher::icons::get_app_icons_batch,
             // Watcher config persistence for auto-start
             save_watcher_config_cmd,
             clear_watcher_config_cmd,
             reconcile_watcher_config_user_cmd,
             // Desktop shell bootstrap commands
             get_desktop_shell_bootstrap_config,
-            check_desktop_hosted_app_reachable,
             desktop_observability::desktop_record_shell_event,
             desktop_observability::desktop_capture_sentry_smoke,
             // Desktop runtime / updater commands
-            desktop_runtime::get_desktop_runtime_info,
+            desktop_runtime::updater::get_desktop_runtime_info,
             desktop_runtime::get_desktop_runtime_state,
-            desktop_runtime::desktop_set_auth_token,
-            desktop_runtime::desktop_frontend_ready,
-            desktop_runtime::desktop_manual_update_check,
-            desktop_runtime::desktop_install_update,
+            desktop_runtime::get_desktop_diagnostics,
+            desktop_runtime::auth_handoff::desktop_set_auth_token,
+            desktop_runtime::desktop_set_privacy_state,
+            cloud_sync::sync_computer_activity_now,
+            resident_runtime::desktop_get_resident_runtime_state,
+            resident_runtime::desktop_set_computer_tracking,
+            resident_runtime::desktop_set_launch_at_login,
+            resident_runtime::desktop_set_menu_bar_visibility,
+            resident_runtime::desktop_quit_completely,
+            desktop_runtime::auth_handoff::desktop_begin_auth_handoff,
+            desktop_runtime::auth_handoff::desktop_complete_auth_handoff,
+            desktop_runtime::auth_handoff::desktop_consume_auth_handoff,
+            desktop_runtime::auth_handoff::desktop_poll_auth_handoff,
+            desktop_runtime::auth_session::desktop_get_auth_token,
+            desktop_runtime::auth_handoff::desktop_clear_auth_state,
+            desktop_runtime::updater::desktop_frontend_ready,
+            desktop_runtime::updater::desktop_manual_update_check,
+            desktop_runtime::updater::desktop_install_update,
             desktop_runtime::get_biome_iphone_diagnostics,
             desktop_runtime::desktop_trigger_biome_iphone_sync,
             desktop_runtime::import_biome_iphone_export,
+            // Local encrypted vault commands
+            local_vault::vault_initialize,
+            local_vault::vault_get_status,
+            local_vault::vault_put_record,
+            local_vault::vault_get_record,
+            local_vault::vault_list_records,
+            local_vault::vault_list_records_page,
+            local_vault::vault_compare_and_swap,
+            local_vault::vault_tombstone_record,
+            local_vault::vault_put_migration_manifest,
+            local_vault::vault_list_migration_manifests,
+            local_vault::vault_put_deletion_receipt,
+            local_vault::vault_list_deletion_receipts,
             // Ritual Database commands (unified libSQL)
             ritual_database::init_ritual_database,
-            ritual_database::get_ritual_db_stats,
-            ritual_database::text_search,
-            ritual_database::check_migration_status,
-            ritual_database::run_project_time_attribution_once,
-            ritual_database::run_project_time_retention_once,
             ritual_database::get_project_time_attribution_health,
         ])
-        .setup(|app| {
+        .setup(move |app| {
             let setup_started_at = Instant::now();
+            chat_runtime::start_chat_runtime_sidecar(app.path().resource_dir().ok());
+            if background_launch {
+                keep_ritual_resident_without_dock_icon(app.handle())?;
+            } else {
+                show_ritual_with_dock_icon(app.handle())?;
+            }
             desktop_runtime::register_runtime_signal_monitor(app.handle().clone());
             desktop_runtime::register_location_outbox_drain_worker(app.handle().clone());
             desktop_runtime::register_biome_outbox_drain_worker(app.handle().clone());
+            initialize_voice_hotkey(app.handle());
 
-            let quit = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
-            let check_updates =
-                MenuItemBuilder::with_id("check_updates", "Check for Updates").build(app)?;
-            let tray_menu = MenuBuilder::new(app)
-                .items(&[&check_updates, &quit])
-                .build()?;
-            let _tray = TrayIconBuilder::new()
-                .menu(&tray_menu)
+            install_ritual_app_menu(app)?;
+
+            let resident_preferences = app.state::<resident_runtime::ResidentRuntimeStore>().read();
+            let tray = TrayIconBuilder::with_id(resident_runtime::RESIDENT_TRAY_ID)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id().as_ref() {
+                    "open_ritual" => {
+                        if let Err(error) = show_main_window_for_app(app) {
+                            warn!(error = %error, "Failed to open Ritual from menu bar");
+                        }
+                    }
+                    "toggle_tracking" => {
+                        let currently_enabled = app
+                            .state::<resident_runtime::ResidentRuntimeStore>()
+                            .read()
+                            .tracking_enabled;
+                        let app = app.clone();
+                        tauri::async_runtime::spawn(async move {
+                            let _ = resident_runtime::desktop_set_computer_tracking(
+                                app,
+                                resident_runtime::SetComputerTrackingInput {
+                                    enabled: !currently_enabled,
+                                    config: None,
+                                },
+                            )
+                            .await;
+                        });
+                    }
+                    "launch_at_login" => {
+                        let enabled = !app
+                            .state::<resident_runtime::ResidentRuntimeStore>()
+                            .read()
+                            .launch_at_login;
+                        let app = app.clone();
+                        tauri::async_runtime::spawn(async move {
+                            let _ =
+                                resident_runtime::desktop_set_launch_at_login(app, enabled).await;
+                        });
+                    }
                     "quit" => {
-                        std::process::exit(0);
+                        resident_runtime::desktop_quit_completely(app.clone());
                     }
                     "check_updates" => {
                         info!("Check for updates requested from system tray");
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                        }
+                        let _ = show_main_window_for_app(app);
                         desktop_runtime::tray_check_for_updates(app.clone());
                     }
                     _ => {}
@@ -1402,13 +2632,17 @@ fn main() {
                     } = event
                     {
                         let app = tray.app_handle();
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                        }
+                        let _ = show_main_window_for_app(app);
                     }
                 })
                 .build(app)?;
+            resident_runtime::refresh_tray_menu(app.handle())?;
+            tray.set_visible(resident_preferences.show_menu_bar)?;
+
+            // Capture and cloud workers are scheduled before the hosted
+            // dashboard window is constructed. A background login launch keeps
+            // the webview hidden while still allowing Clerk to refresh auth.
+            spawn_background_startup_tasks(app.handle().clone(), background_launch);
 
             #[cfg(target_os = "macos")]
             {
@@ -1435,8 +2669,7 @@ fn main() {
                 with_query_param(&app_origin, &format!("ritual_desktop_env={}", ritual_env));
             let bootstrap_url = build_desktop_bootstrap_url(&app_origin, &ritual_env);
             let transparency_probe = env_flag_enabled("RITUAL_TRANSPARENCY_PROBE");
-            let main_glass_enabled =
-                transparency_probe || !env_flag_enabled("RITUAL_DISABLE_MAIN_GLASS");
+            let main_glass_enabled = main_window_glass_enabled(transparency_probe);
             if main_glass_enabled {
                 app_url = with_query_param(&app_url, "ritual_main_glass=1");
             }
@@ -1449,21 +2682,26 @@ fn main() {
                 window
             } else {
                 let mut builder =
-                    tauri::WebviewWindowBuilder::new(app, "main", desktop_shell_window_url()?)
+                    tauri::WebviewWindowBuilder::new(app, "main", desktop_shell_window_url(&app_url)?)
+                        .initialization_script(main_window_glass_init_script(main_glass_enabled))
+                        .initialization_script(desktop_runtime::auth_session::disk_session_init_script())
+                        .initialization_script(main_window_show_on_html_init_script())
                         .user_agent(DESKTOP_WEBVIEW_USER_AGENT)
                         .title("")
-                        .inner_size(1150.0, 800.0)
+                        .inner_size(MAIN_WINDOW_DEFAULT_WIDTH, MAIN_WINDOW_DEFAULT_HEIGHT)
                         .min_inner_size(800.0, 450.0)
                         .resizable(true)
                         .decorations(true)
                         .transparent(main_glass_enabled)
-                        .visible(true);
+                        .shadow(true)
+                        .visible(!background_launch);
 
                 #[cfg(target_os = "macos")]
                 {
                     builder = builder
                         .title_bar_style(tauri::TitleBarStyle::Overlay)
-                        .hidden_title(true);
+                        .hidden_title(true)
+                        .traffic_light_position(tauri::LogicalPosition::new(14.0, 20.0));
                 }
 
                 builder.build().map_err(|e| {
@@ -1473,25 +2711,22 @@ fn main() {
 
             // Configure window after creation
             {
-                let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize {
-                    width: 1150.0,
-                    height: 800.0,
-                }));
-                let _ = window.center();
                 #[cfg(target_os = "macos")]
                 {
                     configure_macos_native_window_chrome(&window);
 
                     if main_glass_enabled {
-                        info!("Main window glass enabled");
+                        info!("Main window glass enabled (native compositor frost, sidebar-clipped)");
                         configure_macos_window_transparency(&window);
                         configure_macos_webview_transparency(&window);
+                        sidebar_glass::install_clipped(&window, app.handle());
                     } else {
-                        info!("Main window glass disabled for stable production rendering");
+                        info!("Main window glass disabled via RITUAL_DISABLE_MAIN_GLASS");
                     }
 
-                    // Position traffic lights into the sidebar region (macOS native feel).
-                    schedule_reposition_traffic_lights(window.clone());
+                    if let Err(error) = window.set_resizable(true) {
+                        warn!(error = %error, "Failed to force main window resizable");
+                    }
 
                     let detached_sidebar_enabled = !transparency_probe
                         && env::var("RITUAL_DETACHED_SIDEBAR")
@@ -1514,53 +2749,37 @@ fn main() {
                         let _ = window.emit("sidebar:width", sidebar_state.get_width());
 
                         let app_handle_for_sync = app.handle().clone();
-                        let traffic_light_window = window.clone();
-                        window.on_window_event(move |event| {
-                            match event {
-                                tauri::WindowEvent::Moved(_)
-                                | tauri::WindowEvent::Resized(_)
-                                | tauri::WindowEvent::ScaleFactorChanged { .. } => {
-                                    // Re-position traffic lights after native relayout settles.
-                                    schedule_reposition_traffic_lights(
-                                        traffic_light_window.clone(),
-                                    );
-                                    let state = app_handle_for_sync.state::<SidebarWindowState>();
-                                    let width = state.get_width();
-                                    let _ =
-                                        sync_detached_sidebar_window(&app_handle_for_sync, width);
-                                    if let Some(main_window) =
-                                        app_handle_for_sync.get_webview_window("main")
-                                    {
-                                        let _ = main_window.emit("sidebar:width", width);
-                                    }
+                        window.on_window_event(move |event| match event {
+                            tauri::WindowEvent::Moved(_)
+                            | tauri::WindowEvent::Resized(_)
+                            | tauri::WindowEvent::ScaleFactorChanged { .. } => {
+                                let state = app_handle_for_sync.state::<SidebarWindowState>();
+                                let width = state.get_width();
+                                let _ = sync_detached_sidebar_window(&app_handle_for_sync, width);
+                                if let Some(main_window) =
+                                    app_handle_for_sync.get_webview_window("main")
+                                {
+                                    let _ = main_window.emit("sidebar:width", width);
                                 }
-                                tauri::WindowEvent::CloseRequested { .. } => {
-                                    if let Some(sidebar_window) =
-                                        app_handle_for_sync.get_webview_window("sidebar")
-                                    {
-                                        let _ = sidebar_window.close();
-                                    }
-                                }
-                                _ => {}
                             }
+                            tauri::WindowEvent::CloseRequested { .. } => {
+                                if let Some(sidebar_window) =
+                                    app_handle_for_sync.get_webview_window("sidebar")
+                                {
+                                    // The global resident-runtime handler hides
+                                    // the main window instead of terminating it.
+                                    // Preserve the detached companion as well so
+                                    // reopening Ritual restores the same process.
+                                    let _ = sidebar_window.hide();
+                                }
+                            }
+                            _ => {}
                         });
                     } else {
                         sidebar_state.set_detached_enabled(false);
                         if let Some(sidebar_window) = app.get_webview_window("sidebar") {
                             let _ = sidebar_window.close();
                         }
-                        // Non-detached mode: still re-position traffic lights on resize or
-                        // display scale changes (moving between monitors can reset them).
-                        let traffic_light_window = window.clone();
-                        window.on_window_event(move |event| {
-                            if matches!(
-                                event,
-                                tauri::WindowEvent::Resized(_)
-                                    | tauri::WindowEvent::ScaleFactorChanged { .. }
-                            ) {
-                                schedule_reposition_traffic_lights(traffic_light_window.clone());
-                            }
-                        });
                     }
                 }
 
@@ -1574,13 +2793,29 @@ fn main() {
                         bootstrap_url_json
                     ));
                 }
-                let _ = window.show();
-                let _ = window.set_focus();
+                apply_one_time_main_window_default_size(&window);
+                if env::args().any(|argument| argument == "--diagnostics") {
+                    let diagnostics = tauri::async_runtime::block_on(
+                        desktop_runtime::build_desktop_diagnostics(app.handle()),
+                    )?;
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&diagnostics).map_err(|error| {
+                            std::io::Error::other(format!("Failed encoding diagnostics: {error}"))
+                        })?
+                    );
+                    std::process::exit(0);
+                }
+                if !background_launch {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
             }
             info!("Using watcher-owned context capture; legacy recorder sidecar is not shipped");
 
             desktop_runtime::emit_runtime_state_changed(app.handle().clone());
-            spawn_background_startup_tasks(app.handle().clone());
+            #[cfg(all(debug_assertions, unix))]
+            spawn_debug_webview_reload_on_sigusr1(app.handle().clone());
 
             desktop_runtime::register_startup_update_check(app.handle().clone());
             info!(
@@ -1592,10 +2827,41 @@ fn main() {
         })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|_app_handle, event| match event {
-            RunEvent::ExitRequested { .. } | RunEvent::Exit => {
+        .run(|app_handle, event| match event {
+            RunEvent::WindowEvent {
+                label,
+                event: tauri::WindowEvent::CloseRequested { api, .. },
+                ..
+            } if label == "main" => {
+                let quitting = app_handle
+                    .state::<resident_runtime::ResidentRuntimeStore>()
+                    .quitting
+                    .load(std::sync::atomic::Ordering::SeqCst);
+                if !quitting {
+                    api.prevent_close();
+                    if let Some(window) = app_handle.get_webview_window("main") {
+                        let _ = window.hide();
+                    }
+                    if let Some(sidebar) = app_handle.get_webview_window("sidebar") {
+                        let _ = sidebar.hide();
+                    }
+                    sync_macos_dock_icon_to_window_visibility(app_handle);
+                    desktop_runtime::emit_runtime_state_changed(app_handle.clone());
+                }
+            }
+            RunEvent::WindowEvent {
+                event: tauri::WindowEvent::Destroyed,
+                ..
+            } => sync_macos_dock_icon_to_window_visibility(app_handle),
+            #[cfg(target_os = "macos")]
+            RunEvent::Reopen { .. } => {
+                let _ = show_main_window_for_app(app_handle);
+            }
+            RunEvent::ExitRequested { .. } => {
+                resident_runtime::mark_quitting(app_handle);
                 shutdown_background_helpers();
             }
+            RunEvent::Exit => shutdown_background_helpers(),
             _ => {}
         });
 
@@ -1603,4 +2869,112 @@ fn main() {
         duration_ms = startup_started_at.elapsed().as_millis() as u64,
         "Ritual desktop event loop exited"
     );
+}
+
+#[cfg(test)]
+mod voice_hotkey_tests {
+    use super::*;
+
+    #[test]
+    fn canonical_voice_shortcut_normalizes_option_space() {
+        assert_eq!(
+            canonical_voice_shortcut_label("Option + Space").as_deref(),
+            Some("Alt+Space"),
+        );
+    }
+
+    #[test]
+    fn parse_voice_shortcut_rejects_empty_or_unmodified_keys() {
+        assert!(parse_voice_shortcut("").is_err());
+        assert!(parse_voice_shortcut("Space").is_err());
+    }
+
+    #[test]
+    fn parse_voice_shortcut_accepts_default() {
+        assert!(parse_voice_shortcut(DEFAULT_VOICE_SHORTCUT).is_ok());
+    }
+
+    #[test]
+    fn voice_hotkey_settings_use_camel_case_json() {
+        let settings = VoiceHotkeySettings {
+            enabled: true,
+            shortcut: DEFAULT_VOICE_SHORTCUT.to_string(),
+            registered: false,
+            registration_error: Some("conflict".to_string()),
+        };
+
+        let raw = serde_json::to_string(&settings).expect("serialize settings");
+        assert!(raw.contains("registrationError"));
+        assert!(!raw.contains("registration_error"));
+
+        let parsed: VoiceHotkeySettings = serde_json::from_str(&raw).expect("deserialize settings");
+        assert_eq!(parsed.shortcut, DEFAULT_VOICE_SHORTCUT);
+        assert_eq!(parsed.registration_error.as_deref(), Some("conflict"));
+    }
+}
+
+#[cfg(test)]
+mod settings_window_tests {
+    use super::*;
+
+    #[test]
+    fn settings_init_script_stays_on_the_local_spa() {
+        let script = settings_window_init_script("privacy");
+        assert!(script.contains("ritual_settings_window"));
+        assert!(script.contains("privacy"));
+        assert!(!script.contains("desktop.ritualdb.com"));
+    }
+
+    #[test]
+    fn production_settings_window_uses_the_bundled_spa() {
+        let url = desktop_settings_window_webview_url().expect("settings url");
+        match url {
+            tauri::WebviewUrl::App(path) => {
+                assert_eq!(path.to_string_lossy(), "index.html");
+            }
+            tauri::WebviewUrl::External(external) => {
+                assert!(external.to_string().starts_with(DESKTOP_SHELL_DEV_URL));
+                assert!(!external.to_string().contains("desktop.ritualdb.com"));
+            }
+            other => panic!("unexpected settings webview url: {other:?}"),
+        }
+    }
+}
+
+#[cfg(test)]
+mod voice_hud_window_tests {
+    use super::*;
+
+    #[test]
+    fn voice_hud_init_script_stays_on_the_local_spa() {
+        let payload = VoiceSessionStartPayload {
+            session_id: "voice-1".to_string(),
+            target: "habit-log".to_string(),
+            source: "hotkey".to_string(),
+            submit_on_final: false,
+            anchor_rect: None,
+        };
+        let script = voice_hud_window_init_script(&payload, true);
+        assert!(script.contains("ritual_voice_hud_window"));
+        assert!(script.contains("ritual_native_voice_hud"));
+        assert!(script.contains("voice-1"));
+        assert!(script.contains("habit-log"));
+        assert!(!script.contains("desktop.ritualdb.com"));
+        assert!(!script.contains("/voice-hud"));
+    }
+
+    #[test]
+    fn production_voice_hud_window_uses_the_bundled_spa() {
+        let url = desktop_local_spa_webview_url().expect("voice hud url");
+        match url {
+            tauri::WebviewUrl::App(path) => {
+                assert_eq!(path.to_string_lossy(), "index.html");
+            }
+            tauri::WebviewUrl::External(external) => {
+                assert!(external.to_string().starts_with(DESKTOP_SHELL_DEV_URL));
+                assert!(!external.to_string().contains("desktop.ritualdb.com"));
+            }
+            other => panic!("unexpected voice HUD webview url: {other:?}"),
+        }
+    }
 }

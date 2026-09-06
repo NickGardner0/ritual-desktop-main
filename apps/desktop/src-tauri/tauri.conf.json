@@ -1,14 +1,14 @@
 {
   "$schema": "../../../node_modules/@tauri-apps/cli/schema.json",
   "productName": "Ritual",
-  "version": "0.1.66",
+  "version": "0.1.118",
   "identifier": "com.ritual.desktop",
   "mainBinaryName": "Ritual",
   "build": {
     "beforeBuildCommand": "npm run shell:build",
     "beforeDevCommand": "npm run shell:dev",
     "devUrl": "http://127.0.0.1:1420",
-    "frontendDist": "../dist"
+    "frontendDist": "../../desktop-ui/dist"
   },
   "app": {
     "macOSPrivateApi": true,
@@ -27,7 +27,7 @@
           "$HOME/.ritual/video/**"
         ]
       },
-      "csp": "default-src 'self' https: asset:; connect-src 'self' ipc: http://ipc.localhost https://desktop.ritualdb.com https://backend-api-production-a37e.up.railway.app https://api.us-east.aws.tinybird.co https://api.ritual.app https://api.clerk.com https://clerk.ritualdb.com https://*.clerk.accounts.dev https://accounts.google.com https://appleid.apple.com https://api.deepgram.com wss://api.deepgram.com http://localhost:3000 http://127.0.0.1:3000 http://localhost:3031 http://127.0.0.1:3031 http://localhost:8000 http://127.0.0.1:8000 ws://localhost:3000 ws://127.0.0.1:3000; img-src 'self' asset: http://asset.localhost data: blob: https:; media-src 'self' asset: http://asset.localhost data: blob: https:; font-src 'self' data: https:; style-src 'self' 'unsafe-inline' https:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; frame-src 'self' https://clerk.ritualdb.com https://*.clerk.accounts.dev https://accounts.google.com https://appleid.apple.com; object-src 'none'; base-uri 'self'; form-action 'self' https://clerk.ritualdb.com https://*.clerk.accounts.dev https://accounts.google.com https://appleid.apple.com;"
+      "csp": "default-src 'self' https: asset:; connect-src 'self' ipc: http://ipc.localhost https://desktop.ritualdb.com https://backend-api-production-a37e.up.railway.app https://api.us-east.aws.tinybird.co https://api.ritual.app https://api.clerk.com https://clerk.ritualdb.com https://*.clerk.accounts.dev https://*.clerk.com https://clerk-telemetry.com https://challenges.cloudflare.com https://accounts.google.com https://appleid.apple.com https://api.deepgram.com wss://api.deepgram.com http://localhost:3000 http://127.0.0.1:3000 http://localhost:8000 http://127.0.0.1:8000 http://127.0.0.1:8787 http://localhost:8787 ws://localhost:3000 ws://127.0.0.1:3000; img-src 'self' asset: http://asset.localhost data: blob: https:; media-src 'self' asset: http://asset.localhost data: blob: https:; font-src 'self' data: https:; style-src 'self' 'unsafe-inline' https:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https:; worker-src 'self' blob: https:; child-src 'self' blob: https:; frame-src 'self' blob: https://clerk.ritualdb.com https://*.clerk.accounts.dev https://accounts.google.com https://appleid.apple.com https://challenges.cloudflare.com; object-src 'none'; base-uri 'self'; form-action 'self' https://clerk.ritualdb.com https://*.clerk.accounts.dev https://accounts.google.com https://appleid.apple.com;"
     },
     "windows": []
   },
@@ -43,7 +43,8 @@
     },
     "externalBin": [
       "binaries/ritual-watcher",
-      "binaries/ritual-vision-helper"
+      "binaries/ritual-vision-helper",
+      "binaries/ritual-agent"
     ],
     "icon": [
       "icons/32x32.png",
@@ -57,10 +58,14 @@
       "entitlements": "entitlements.plist",
       "exceptionDomain": "",
       "frameworks": [],
+      "minimumSystemVersion": "14.0",
       "providerShortName": null,
       "signingIdentity": "Developer ID Application: NICHOLAS,ALEXANDER GARDNER (D657T2LVR2)"
     },
-    "resources": [],
+    "resources": [
+      "resources/chat-runtime",
+      "resources/agent"
+    ],
     "shortDescription": "",
     "targets": "all",
     "windows": {
@@ -73,7 +78,6 @@
     "deep-link": {
       "desktop": {
         "schemes": [
-          "ritual",
           "com.ritual.desktop"
         ]
       }

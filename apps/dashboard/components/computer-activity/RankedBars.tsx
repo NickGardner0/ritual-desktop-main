@@ -259,9 +259,14 @@ export function RankedBars({
             <Row
               key={item.key}
               type={isInteractive ? 'button' : undefined}
-              className={`group grid w-full grid-cols-[16px_minmax(0,1fr)_84px_60px] items-center gap-3 rounded-sm px-2 py-1.5 text-left transition-colors ${
+              className={`ritual-snappy-row group grid w-full grid-cols-[16px_minmax(0,1fr)_84px_60px] items-center gap-3 rounded-sm px-2 py-1.5 text-left ${
                 isInteractive ? 'cursor-pointer appearance-none bg-transparent border-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900/20 focus-visible:ring-offset-2 focus-visible:ring-offset-white' : 'cursor-default'
-              } ${isSelected ? 'bg-[rgba(39,37,30,0.05)]' : 'hover:bg-[rgba(39,37,30,0.04)]'}`}
+              } ${isSelected ? 'bg-[rgba(39,37,30,0.05)]' : ''}`}
+              style={{
+                '--ritual-snappy-row-hover': 'rgba(39,37,30,0.04)',
+                '--ritual-snappy-row-active': 'rgba(39,37,30,0.05)',
+              } as React.CSSProperties}
+              data-active={isSelected ? 'true' : undefined}
               aria-expanded={isInteractive ? isSelected : undefined}
               onMouseEnter={showTooltip ? (e) => handleMouseEnter(item, e) : undefined}
               onMouseLeave={showTooltip ? handleMouseLeave : undefined}

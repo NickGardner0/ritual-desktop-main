@@ -8,6 +8,8 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use ritual_db::{blocking::BlockingDatabase, DeliveryOutboxKind};
+
 const MAX_OUTBOX_EVENTS: usize = 100_000;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -84,6 +86,7 @@ impl BiomeActivityEvent {
 pub struct BiomeOutbox {
     path: PathBuf,
     inner: Mutex<Vec<BiomeActivityEvent>>,
+    database: Option<BlockingDatabase>,
 }
 
 struct JsonlRead {
@@ -93,7 +96,30 @@ struct JsonlRead {
 
 impl BiomeOutbox {
     pub fn load() -> io::Result<Self> {
-        Self::load_from(outbox_path())
+        let path = outbox_path();
+        let database_path = crate::paths::data_dir().join("activity.db");
+        let database = BlockingDatabase::open_activity_db_with_env(database_path)
+            .map_err(|error| io::Error::new(io::ErrorKind::Other, error.to_string()))?;
+        if path.exists() {
+            let read = read_jsonl(&path)?;
+            if !read.malformed_lines.is_empty() {
+                quarantine_malformed(&path, &read.malformed_lines)?;
+            }
+            for event in dedupe_events(read.events) {
+                let event_id = event.event_uid.clone().unwrap_or_else(|| event.key());
+                let payload = serde_json::to_string(&event)
+                    .map_err(|error| io::Error::new(io::ErrorKind::Other, error))?;
+                database
+                    .enqueue_delivery_outbox(DeliveryOutboxKind::Biome, &event_id, &payload)
+                    .map_err(|error| io::Error::new(io::ErrorKind::Other, error.to_string()))?;
+            }
+            fs::rename(&path, path.with_extension("jsonl.migrated"))?;
+        }
+        Ok(Self {
+            path,
+            inner: Mutex::new(Vec::new()),
+            database: Some(database),
+        })
     }
 
     pub fn load_from(path: PathBuf) -> io::Result<Self> {
@@ -117,12 +143,28 @@ impl BiomeOutbox {
         Ok(Self {
             path,
             inner: Mutex::new(events),
+            database: None,
         })
     }
 
     pub fn enqueue_many(&self, events: Vec<BiomeActivityEvent>) -> io::Result<usize> {
         if events.is_empty() {
             return Ok(0);
+        }
+        if let Some(database) = &self.database {
+            let mut added = 0usize;
+            for event in events {
+                let event_id = event.event_uid.clone().unwrap_or_else(|| event.key());
+                let payload = serde_json::to_string(&event)
+                    .map_err(|error| io::Error::new(io::ErrorKind::Other, error))?;
+                if database
+                    .enqueue_delivery_outbox(DeliveryOutboxKind::Biome, &event_id, &payload)
+                    .map_err(|error| io::Error::new(io::ErrorKind::Other, error.to_string()))?
+                {
+                    added += 1;
+                }
+            }
+            return Ok(added);
         }
         let mut guard = self.inner.lock().expect("biome outbox mutex poisoned");
         let mut keys: HashSet<String> = guard.iter().map(BiomeActivityEvent::key).collect();
@@ -154,12 +196,7 @@ impl BiomeOutbox {
 }
 
 pub fn outbox_path() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-    PathBuf::from(home)
-        .join("Library")
-        .join("Application Support")
-        .join("Ritual")
-        .join("biome_iphone_events.jsonl")
+    crate::paths::auxiliary_data_dir().join("biome_iphone_events.jsonl")
 }
 
 fn read_jsonl(path: &PathBuf) -> io::Result<JsonlRead> {
@@ -321,12 +358,7 @@ mod tests {
         let quarantine_count = fs::read_dir(path.parent().unwrap())
             .unwrap()
             .flatten()
-            .filter(|entry| {
-                entry
-                    .file_name()
-                    .to_string_lossy()
-                    .contains(".malformed.")
-            })
+            .filter(|entry| entry.file_name().to_string_lossy().contains(".malformed."))
             .count();
         assert_eq!(quarantine_count, 1);
     }

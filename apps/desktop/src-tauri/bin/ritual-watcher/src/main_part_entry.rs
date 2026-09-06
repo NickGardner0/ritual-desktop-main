@@ -517,11 +517,7 @@ fn ensure_session_event_persisted(
                     session.app_name, id, context
                 );
             }
-            if let Some(ref sq) = sync_queue {
-                if let Err(e) = sq.queue_activity_sync(id) {
-                    debug!("Failed to queue recovered session for sync: {}", e);
-                }
-            }
+            // The activity_events insert trigger is the sole enqueue authority.
             true
         }
         Err(e) => {
@@ -586,11 +582,6 @@ fn close_session_with_lock_fallback(
         } else {
             *last_main_session_end_update_ms = now;
             *pending_main_end_update = None;
-        }
-        if let Some(ref sq) = sync_queue {
-            if let Err(e) = sq.queue_activity_sync(event_id) {
-                debug!("Failed to queue for sync: {}", e);
-            }
         }
     } else {
         debug!(

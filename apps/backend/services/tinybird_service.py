@@ -13,6 +13,11 @@ from collections import deque
 from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 
+from services.privacy_policy import (
+    can_send_to_cloud,
+    data_class_for_tinybird_datasource,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -170,6 +175,18 @@ class TinybirdService:
         """
         Lightweight connectivity probe for health checks.
         """
+        decision = can_send_to_cloud(
+            data_class="product_telemetry",
+            destination="tinybird",
+            purpose="analytics",
+        )
+        if not decision.allowed:
+            return {
+                "status": "disabled",
+                "reason": decision.reason,
+                "privacy_blocked": True,
+            }
+
         url = f"{self.base_url}/v0/datasources"
         started = time.monotonic()
         try:
@@ -332,6 +349,26 @@ class TinybirdService:
         """
         Ingest events to Tinybird Events API with circuit breaker protection.
         """
+        decision = can_send_to_cloud(
+            data_class=data_class_for_tinybird_datasource(datasource),
+            destination="tinybird",
+            purpose="analytics",
+        )
+        if not decision.allowed:
+            logger.info(
+                "Tinybird ingest blocked by privacy policy datasource=%s count=%d reason=%s",
+                datasource,
+                len(events),
+                decision.reason,
+            )
+            return {
+                "success": True,
+                "count": 0,
+                "skipped": len(events),
+                "privacy_blocked": True,
+                "message": decision.reason,
+            }
+
         if not self._breaker.allow_request():
             # Buffer events for later drain
             for evt in events:
@@ -371,10 +408,28 @@ class TinybirdService:
                 'buffered': True,
             }
     
-    async def query_pipe(self, pipe_name: str, params: Dict[str, Any] = None) -> Dict[str, Any]:
+    async def query_pipe(
+        self,
+        pipe_name: str,
+        params: Dict[str, Any] = None,
+        *,
+        data_class: str = "habit_log",
+    ) -> Dict[str, Any]:
         """
         Query a Tinybird pipe
         """
+        decision = can_send_to_cloud(
+            data_class=data_class,
+            destination="tinybird",
+            purpose="analytics",
+        )
+        if not decision.allowed:
+            return {
+                "data": [],
+                "meta": {"privacy_blocked": True, "reason": decision.reason},
+                "statistics": {},
+            }
+
         try:
             url = f"{self.base_url}/v0/pipes/{pipe_name}.json"
             
@@ -491,15 +546,26 @@ class TinybirdService:
             'unit': unit_value or 'none',
             'notes': log_data.get('notes') or 'none',
             'source': log_data.get('source') or 'manual',
+            'location_lat': log_data.get('location_lat'),
+            'location_lon': log_data.get('location_lon'),
+            'location_accuracy_m': log_data.get('location_accuracy_m'),
+            'location_source': log_data.get('location_source'),
+            'location_place_label': log_data.get('location_place_label'),
+            'location_confidence': log_data.get('location_confidence'),
+            'location_resolved_at': log_data.get('location_resolved_at'),
+            'location_signal_age_ms': log_data.get('location_signal_age_ms'),
             'integration_id': integration_id if integration_id else 'none',
             'whoop_metric_type': whoop_metric if whoop_metric else 'none',
             'metadata': metadata_serialized,
             'created_at': timestamp_str,
         }
         
-        logger.info(f"🔍 Tinybird event data (formatted): {event}")
         result = await self.ingest_events('habit_logs', [event])
-        logger.info(f"🔍 Tinybird ingest result: {result}")
+        logger.info("Tinybird habit log ingest result: %s", {
+            "success": result.get("success"),
+            "privacy_blocked": result.get("privacy_blocked", False),
+            "count": result.get("count"),
+        })
         return result
     
     async def ingest_habit_logs_batch(self, logs: List[Dict[str, Any]], batch_size: int = 500) -> Dict[str, Any]:
@@ -578,6 +644,14 @@ class TinybirdService:
                 'unit': unit_value if unit_value else 'none',
                 'notes': log.get('notes') or 'none',
                 'source': log.get('source') or 'manual',
+                'location_lat': log.get('location_lat'),
+                'location_lon': log.get('location_lon'),
+                'location_accuracy_m': log.get('location_accuracy_m'),
+                'location_source': log.get('location_source'),
+                'location_place_label': log.get('location_place_label'),
+                'location_confidence': log.get('location_confidence'),
+                'location_resolved_at': log.get('location_resolved_at'),
+                'location_signal_age_ms': log.get('location_signal_age_ms'),
                 'integration_id': integration_id if integration_id else 'none',
                 'whoop_metric_type': whoop_metric if whoop_metric else 'none',
                 'metadata': metadata_serialized,
@@ -678,6 +752,180 @@ class TinybirdService:
             params['habit_id'] = habit_id
         
         return await self.query_pipe('habit_trends', params)
+
+    async def get_habits_summary_payload(
+        self,
+        user_id: str,
+        days_back: int = 30,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        use_custom_range = bool(start_date and end_date)
+        if use_custom_range:
+            raw = await self.query_pipe(
+                "habit_period_comparison",
+                {
+                    "user_id": user_id,
+                    "start_date": start_date,
+                    "end_date": end_date,
+                },
+            )
+            rows = [format_habit_period_comparison_row(row) for row in raw.get("data") or []]
+        else:
+            raw = await self.query_pipe(
+                "user_habits_summary",
+                {
+                    "user_id": user_id,
+                    "days_back": days_back,
+                },
+            )
+            rows = [format_user_habits_summary_row(row) for row in raw.get("data") or []]
+        return {
+            "success": True,
+            "useCustomRange": use_custom_range,
+            "data": rows,
+        }
+
+    async def get_habit_logs_time_range_payload(
+        self,
+        user_id: str,
+        start_date: str,
+        end_date: str,
+        limit: int = 1000,
+        habit_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        params: Dict[str, Any] = {
+            "user_id": user_id,
+            "start_date": start_date,
+            "end_date": end_date,
+            "limit": limit,
+        }
+        if habit_id:
+            params["habit_id"] = habit_id
+        raw = await self.query_pipe("habit_logs_time_range", params)
+        return {
+            "success": True,
+            "data": raw.get("data") or [],
+        }
+
+    async def get_habit_correlation_payload(
+        self,
+        user_id: str,
+        habit1_id: str,
+        habit2_id: str,
+        days_back: int = 90,
+    ) -> Dict[str, Any]:
+        raw = await self.query_pipe(
+            "habit_correlation",
+            {
+                "user_id": user_id,
+                "habit1_id": habit1_id,
+                "habit2_id": habit2_id,
+                "days_back": days_back,
+            },
+        )
+        return format_habit_correlation_payload(raw)
+
+    async def get_heart_rate_summary_payload(
+        self,
+        user_id: str,
+        days_back: int = 30,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        source_type: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        params: Dict[str, Any] = {"user_id": user_id}
+        if source_type:
+            params["source_type"] = source_type
+        if start_date and end_date:
+            params["start_date"] = start_date
+            params["end_date"] = end_date
+        else:
+            params["days_back"] = days_back
+        raw = await self.query_pipe(
+            "heart_rate_summary",
+            params,
+            data_class="health_metric",
+        )
+        rows = raw.get("data") or []
+        return {
+            "success": True,
+            "data": rows[0] if rows else None,
+        }
+
+    async def get_heart_rate_series_payload(
+        self,
+        user_id: str,
+        bucket: str = "day",
+        days_back: int = 30,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        source_type: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        params: Dict[str, Any] = {
+            "user_id": user_id,
+            "bucket": bucket,
+        }
+        if source_type:
+            params["source_type"] = source_type
+        if start_date and end_date:
+            params["start_date"] = start_date
+            params["end_date"] = end_date
+        else:
+            params["days_back"] = days_back
+        raw = await self.query_pipe(
+            "heart_rate_series",
+            params,
+            data_class="health_metric",
+        )
+        return {
+            "success": True,
+            "bucket": bucket,
+            "data": raw.get("data") or [],
+        }
+
+    async def get_habit_daily_values_payload(
+        self,
+        user_id: str,
+        output: str = "summary",
+        days_back: int = 30,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        habit_id: Optional[str] = None,
+        habit_ids: Optional[str] = None,
+        policy_v2: bool = False,
+    ) -> Dict[str, Any]:
+        pipe_name = "habit_daily_series" if output == "daily" else "habit_daily_values"
+        params: Dict[str, Any] = {
+            "user_id": user_id,
+            "policy_v2": "1" if policy_v2 else "0",
+        }
+        if habit_id:
+            params["habit_id"] = habit_id
+        elif habit_ids:
+            params["habit_ids"] = habit_ids
+        if start_date and end_date:
+            params["start_date"] = start_date
+            params["end_date"] = end_date
+        else:
+            params["days_back"] = days_back
+        raw = await self.query_pipe(pipe_name, params)
+        rows = raw.get("data") or []
+        return {
+            "success": True,
+            "output": output,
+            "data": rows,
+            "meta": {
+                "user_id": user_id,
+                "pipe": pipe_name,
+                "habit_id": habit_id,
+                "habit_ids": None if habit_id else (habit_ids or None),
+                "start_date": start_date,
+                "end_date": end_date,
+                "days_back": None if start_date and end_date else days_back,
+                "rows": len(rows),
+            },
+        }
     
     async def get_recent_habit_logs(self, user_id: str, days_back: int = 7, limit: int = 100, habit_id: Optional[str] = None) -> Dict[str, Any]:
         """
@@ -917,3 +1165,131 @@ class TinybirdService:
                 'success': False,
                 'error': str(e)
             }
+
+
+def format_user_habits_summary_row(habit: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "habit_id": habit.get("habit_id"),
+        "habit_name": habit.get("habit_name"),
+        "unit": habit.get("unit"),
+        "total_logs": habit.get("total_logs"),
+        "completed_count": habit.get("completed_count"),
+        "days_with_data": habit.get("days_with_data"),
+        "total_amount": habit.get("total_amount"),
+        "avg_amount": habit.get("avg_amount"),
+        "last_7_days_avg": habit.get("last_7_days_avg") or 0,
+        "last_7_days_amount": habit.get("last_7_days_amount") or 0,
+        "last_7_days_count": habit.get("last_7_days_count") or 0,
+        "last_7_days_with_data": habit.get("last_7_days_with_data") or 0,
+        "prev_7_days_avg": habit.get("prev_7_days_avg") or 0,
+        "prev_7_days_count": habit.get("prev_7_days_count") or 0,
+        "prev_7_days_with_data": habit.get("prev_7_days_with_data") or 0,
+        "weekly_amount_change_pct": habit.get("weekly_amount_change_pct") or 0,
+        "weekly_days_change_pct": habit.get("weekly_days_change_pct") or 0,
+        "last_30_days_avg": habit.get("last_30_days_avg") or 0,
+        "last_30_days_amount": habit.get("last_30_days_amount") or 0,
+        "monthly_amount_change_pct": habit.get("monthly_amount_change_pct") or 0,
+        "monthly_days_change_pct": habit.get("monthly_days_change_pct") or 0,
+        "last_completed_date": habit.get("last_completed_date"),
+        "first_log_date": habit.get("first_log_date"),
+    }
+
+
+def format_habit_period_comparison_row(habit: Dict[str, Any]) -> Dict[str, Any]:
+    amount_change_pct = habit.get("amount_change_pct") or 0
+    return {
+        "habit_id": habit.get("habit_id"),
+        "habit_name": habit.get("habit_name"),
+        "unit": habit.get("unit"),
+        "first_date": habit.get("first_date"),
+        "first_day_amount": habit.get("first_day_amount") or 0,
+        "first_day_duration": habit.get("first_day_duration") or 0,
+        "last_date": habit.get("last_date"),
+        "last_day_amount": habit.get("last_day_amount") or 0,
+        "last_day_duration": habit.get("last_day_duration") or 0,
+        "days_with_data": habit.get("days_with_data") or 0,
+        "total_amount": habit.get("total_amount") or 0,
+        "total_duration": habit.get("total_duration") or 0,
+        "avg_amount": habit.get("avg_amount") or 0,
+        "avg_duration": habit.get("avg_duration") or 0,
+        "amount_change_pct": amount_change_pct,
+        "duration_change_pct": habit.get("duration_change_pct") or 0,
+        "amount_absolute_change": habit.get("amount_absolute_change") or 0,
+        "duration_absolute_change": habit.get("duration_absolute_change") or 0,
+        "weekly_amount_change_pct": amount_change_pct,
+        "period_start": habit.get("period_start"),
+        "period_end": habit.get("period_end"),
+        "period_days": habit.get("period_days"),
+    }
+
+
+def interpret_habit_correlation(
+    coefficient: float,
+    strength: str,
+    direction: str,
+    habit1_name: str,
+    habit2_name: str,
+) -> str:
+    if strength == "insufficient_data":
+        return (
+            f"Not enough overlapping data to determine a relationship between {habit1_name} and {habit2_name}. "
+            "Need at least 7 days where both are logged."
+        )
+    if strength == "negligible":
+        return f"No significant relationship found between {habit1_name} and {habit2_name}."
+    strength_word = "strong" if strength == "strong" else "moderate" if strength == "moderate" else "weak"
+    if direction == "positive":
+        return (
+            f"There is a {strength_word} positive correlation (r={coefficient:.2f}). "
+            f"On days with more {habit1_name}, you tend to have more {habit2_name}."
+        )
+    if direction == "negative":
+        return (
+            f"There is a {strength_word} negative correlation (r={coefficient:.2f}). "
+            f"On days with more {habit1_name}, you tend to have less {habit2_name}."
+        )
+    return f"No clear directional relationship between {habit1_name} and {habit2_name}."
+
+
+def format_habit_correlation_payload(raw: Dict[str, Any]) -> Dict[str, Any]:
+    rows = raw.get("data") or []
+    result = rows[0] if rows else None
+    if not result:
+        return {
+            "success": False,
+            "error": "No overlapping data found between these habits",
+        }
+    coefficient = float(result.get("correlation") or 0)
+    strength = str(result.get("strength") or "")
+    direction = str(result.get("direction") or "")
+    habit1_name = str(result.get("habit1_name") or "habit 1")
+    habit2_name = str(result.get("habit2_name") or "habit 2")
+    return {
+        "success": True,
+        "data": {
+            "habit1": {
+                "id": result.get("habit1_id"),
+                "name": habit1_name,
+                "mean": result.get("habit1_mean"),
+            },
+            "habit2": {
+                "id": result.get("habit2_id"),
+                "name": habit2_name,
+                "mean": result.get("habit2_mean"),
+            },
+            "correlation": {
+                "coefficient": round(coefficient * 1000) / 1000,
+                "strength": strength,
+                "direction": direction,
+                "interpretation": interpret_habit_correlation(
+                    coefficient,
+                    strength,
+                    direction,
+                    habit1_name,
+                    habit2_name,
+                ),
+            },
+            "sampleSize": result.get("sample_size"),
+            "status": result.get("status"),
+        },
+    }

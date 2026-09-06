@@ -15,7 +15,7 @@ from sqlalchemy import delete, func, select
 from database.connection import get_db_session
 from database.models import ScreenTimeRollupDB, WearableDeviceDB
 from schemas.screen_time import ScreenTimeIngestRequest, ScreenTimeIngestResult
-from services.wearables_service import wearables_service
+from services.wearables_unified import wearable_device_security_service
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +30,7 @@ class ScreenTimeService:
     biome_source = "biome_iphone"
 
     async def register_device(self, user_id: str, device_name: str, platform: str) -> Tuple[str, str]:
-        return await wearables_service.register_device(
+        return await wearable_device_security_service.register_device(
             user_id,
             device_name,
             platform,
@@ -39,34 +39,29 @@ class ScreenTimeService:
         )
 
     async def list_devices(self, user_id: str) -> List[WearableDeviceDB]:
-        return await wearables_service.get_user_devices(user_id, provider=self.provider)
+        return await wearable_device_security_service.list_devices(user_id, provider=self.provider)
 
     async def ingest_rollups(
         self,
         user_id: str,
         request: ScreenTimeIngestRequest,
     ) -> Tuple[bool, List[ScreenTimeIngestResult], Optional[str]]:
-        device = await wearables_service.get_device(request.device_id)
-        if not device:
-            return False, [], "Device not found"
-        if device.user_id != user_id:
-            return False, [], "Device does not belong to this user"
-        if device.provider != self.provider:
-            return False, [], "Device is not a Screen Time device"
-        if not device.is_active:
-            return False, [], "Device is deactivated"
+        validation = await wearable_device_security_service.validate_signed_device_request(
+            user_id=user_id,
+            provider=self.provider,
+            device_id=request.device_id,
+            client_event_id=request.client_event_id,
+            captured_at=request.captured_at,
+            signature=request.signature,
+        )
+        if not validation.success:
+            error = "Device is not a Screen Time device" if validation.error == f"Device is not a {self.provider} device" else validation.error
+            return False, [], error
 
-        canonical = wearables_service.build_canonical_string(
+        existing_event = await wearable_device_security_service.check_idempotency(
             request.device_id,
             request.client_event_id,
-            request.captured_at,
         )
-        device_secret = wearables_service._decrypt_device_secret(device.device_secret_hash)
-        if not wearables_service.verify_signature(device_secret, canonical, request.signature):
-            logger.error("❌ Screen Time signature verification failed for device %s", request.device_id)
-            return False, [], "Invalid signature"
-
-        existing_event = await wearables_service.check_idempotency(request.device_id, request.client_event_id)
         if existing_event:
             logger.warning("⚠️ Duplicate Screen Time client_event_id: %s", request.client_event_id)
             return True, [], "Already processed (idempotency)"
@@ -117,7 +112,7 @@ class ScreenTimeService:
             await session.commit()
 
         success_count = sum(1 for result in results if result.success)
-        await wearables_service.record_ingest_event(
+        await wearable_device_security_service.record_ingest_event(
             device_id=request.device_id,
             client_event_id=request.client_event_id,
             metrics_count=len(request.rollups),

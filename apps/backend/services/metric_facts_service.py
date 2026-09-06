@@ -33,12 +33,20 @@ from database.models import (
     WearableSampleDB,
 )
 from services.financial_rollup_service import financial_rollup_service
+from services.habit_daily_policy import (
+    convert_value as _convert_value,
+    is_completed_status as _is_completed_status,
+    is_sleep_like as _is_sleep_like,
+    log_value_for_habit as _log_value_for_habit,
+    normalize_metric_key as _normalize_metric_key,
+    target_unit as _target_unit,
+    _unit_kind,
+)
 
 logger = logging.getLogger(__name__)
 
 
 WEARABLE_PROVIDERS = {"apple_health", "whoop", "oura", "fitbit", "garmin"}
-SLEEP_ALIASES = {"sleep", "sleep_session", "sleep_duration", "sleep_total", "in_bed"}
 CUMULATIVE_METRICS = {
     "steps",
     "active_energy",
@@ -85,95 +93,6 @@ def _loads(raw: Optional[str], fallback: Any = None) -> Any:
         return json.loads(raw)
     except Exception:
         return fallback
-
-
-def _normalize_metric_key(value: Optional[str], *, habit_name: Optional[str] = None) -> str:
-    raw = (value or "").strip().lower()
-    name = (habit_name or "").strip().lower()
-    if raw in SLEEP_ALIASES or ("sleep" in name and raw in {"", "none"}):
-        return "sleep_total"
-    if raw in {"daily_spending", "spending"}:
-        return "daily_spending"
-    if raw in {"computer_use", "computer_time"}:
-        return "computer_time"
-    if raw in {"iphone_time", "iphone_screen_time", "screen_time"} or ("iphone" in name and "time" in name):
-        return "iphone_time"
-    if not raw:
-        return name.replace(" ", "_") or "manual"
-    return raw
-
-
-def _is_sleep_like(habit: HabitDB) -> bool:
-    metric = _normalize_metric_key(habit.metric_type, habit_name=habit.name)
-    return metric == "sleep_total" or "sleep" in (habit.name or "").lower()
-
-
-def _is_completed_status(status: Optional[str]) -> bool:
-    normalized = (status or "").strip().lower()
-    return normalized in {"", "completed", "success"}
-
-
-def _target_unit(habit: HabitDB, fallback: str = "count") -> str:
-    return str(habit.unit_type or fallback or "count")
-
-
-def _unit_kind(unit: Optional[str]) -> str:
-    normalized = (unit or "").strip().lower()
-    if "hour" in normalized or normalized in {"hr", "hrs", "h"}:
-        return "hours"
-    if "minute" in normalized or normalized in {"min", "mins", "m"}:
-        return "minutes"
-    if normalized in {"ms", "millisecond", "milliseconds"}:
-        return "milliseconds"
-    if "second" in normalized or normalized in {"sec", "secs", "s"}:
-        return "seconds"
-    if "dollar" in normalized or normalized in {"usd", "$"}:
-        return "dollars"
-    return normalized or "count"
-
-
-def _convert_value(value: float, from_unit: Optional[str], to_unit: Optional[str], metric_key: str) -> float:
-    source = _unit_kind(from_unit)
-    target = _unit_kind(to_unit)
-    if not math.isfinite(value):
-        return 0.0
-    if source == target or target in {"", "count"}:
-        return float(value)
-
-    seconds: Optional[float] = None
-    if source == "hours":
-        seconds = value * 3600
-    elif source == "minutes":
-        seconds = value * 60
-    elif source == "seconds":
-        seconds = value
-    elif source == "milliseconds":
-        seconds = value / 1000
-
-    if seconds is not None:
-        if target == "hours":
-            return seconds / 3600
-        if target == "minutes":
-            return seconds / 60
-        if target == "seconds":
-            return seconds
-
-    if metric_key == "sleep_total" and source == "minutes" and target == "hours":
-        return value / 60
-    return float(value)
-
-
-def _log_value_for_habit(habit: HabitDB, log: HabitLogDB) -> float:
-    unit = _target_unit(habit).lower()
-    if log.duration and log.duration > 0:
-        if "hour" in unit:
-            return float(log.duration) / 3600
-        if "minute" in unit:
-            return float(log.duration) / 60
-        return float(log.duration)
-    if log.amount is not None:
-        return float(log.amount)
-    return 1.0
 
 
 def _classify_habit(habit: HabitDB) -> str:
@@ -684,7 +603,7 @@ class MetricFactService:
                 {"value": 0.0, "record_count": 0, "ids": []},
             )
             if _is_sleep_like(habit):
-                bucket["value"] = max(float(bucket["value"]), value)
+                bucket["value"] = value if int(bucket["record_count"]) == 0 else max(float(bucket["value"]), value)
             else:
                 bucket["value"] = float(bucket["value"]) + value
             bucket["record_count"] = int(bucket["record_count"]) + 1

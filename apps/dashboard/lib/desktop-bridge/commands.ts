@@ -1,25 +1,40 @@
 "use client";
 
-import { isDesktopTauriRuntime } from "@/lib/desktop-bridge/environment";
+import {
+  hasDesktopTauriIpcBridge,
+  isDesktopTauriRuntime,
+} from "@/lib/desktop-bridge/environment";
+import type {
+  NativeCommandInputs,
+  NativeCommandName,
+  NativeCommandOutputs,
+} from "@/lib/native-gateway-commands.generated";
 
 type OpenDesktopExternalUrlOptions = {
   preferNative?: boolean;
 };
 
-export async function invokeDesktopCommand<T>(
-  command: string,
-  args?: Record<string, unknown>,
-): Promise<T> {
+export async function invokeDesktopCommand<
+  T = never,
+  K extends NativeCommandName = NativeCommandName,
+>(
+  command: K,
+  args?: NativeCommandInputs[K],
+): Promise<[T] extends [never] ? NativeCommandOutputs[K] : T> {
+  if (hasDesktopTauriIpcBridge()) {
+    const { invoke } = await import("@tauri-apps/api/core");
+    return invoke(command, args) as Promise<[T] extends [never] ? NativeCommandOutputs[K] : T>;
+  }
+
   if (!isDesktopTauriRuntime()) {
     throw new Error(`Desktop command "${command}" requires Ritual Desktop.`);
   }
 
-  const { invoke } = await import("@tauri-apps/api/core");
-  return invoke<T>(command, args);
+  throw new Error(`Desktop command "${command}" requires native Tauri IPC.`);
 }
 
 export async function openDesktopExternalUrl(url: string): Promise<void> {
-  if (!isDesktopTauriRuntime()) {
+  if (!hasDesktopTauriIpcBridge()) {
     window.open(url, "_blank", "noopener,noreferrer");
     return;
   }
@@ -34,12 +49,15 @@ export async function openDesktopExternalUrlWithFallback(
 ): Promise<void> {
   const { preferNative = false } = options;
 
-  if (!preferNative && !isDesktopTauriRuntime()) {
+  if (!preferNative && !hasDesktopTauriIpcBridge()) {
     window.open(url, "_blank", "noopener,noreferrer");
     return;
   }
 
   try {
+    if (!hasDesktopTauriIpcBridge()) {
+      throw new Error("Native Tauri IPC is unavailable.");
+    }
     const { open } = await import("@tauri-apps/plugin-shell");
     await open(url);
     return;

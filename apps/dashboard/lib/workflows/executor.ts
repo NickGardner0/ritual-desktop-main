@@ -1,6 +1,7 @@
-import OpenAI from 'openai';
-
 import {
+  collectModelEngineResponse,
+  defaultAssistantKernel,
+  defaultModelEngine,
   executeGetActivitySummary,
   executeGetCalendarEvents,
   executeGetComputerTimeSpentBreakdown,
@@ -13,13 +14,22 @@ import {
   shiftYmd,
   buildCalendarStyleActivitySummary,
   inferRecapAnchorDate,
+  getAssistantTurnStore,
 } from '@ritual/chat-runtime';
+
+import {
+  buildCustomDeterministicArtifact,
+  collectCustomRoutine,
+  isCustomRoutine,
+  synthesizeCustomArtifactWithModelEngine,
+} from './custom-routine';
 
 export type WorkflowKind = 'morning_brief' | 'shutdown_review' | 'daily_narrative' | 'distraction_spiral';
 export type WorkflowArtifactKind =
   | 'morning_brief'
   | 'shutdown_review'
-  | 'ambient_digest';
+  | 'ambient_digest'
+  | 'report';
 
 export interface WorkflowExecuteWindow {
   start: string;
@@ -68,18 +78,6 @@ interface WorkflowExecutionResult {
   fact_suggestions: FactSuggestion[];
   linked_entities: Array<Record<string, unknown>>;
   queue_suggestions: Array<Record<string, unknown>>;
-}
-
-let _openaiClient: OpenAI | null = null;
-
-function getOpenAIClient(): OpenAI {
-  if (_openaiClient) return _openaiClient;
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    throw new Error('OPENAI_API_KEY is not configured');
-  }
-  _openaiClient = new OpenAI({ apiKey });
-  return _openaiClient;
 }
 
 function parseJsonPayload(raw: string): any {
@@ -441,13 +439,12 @@ function buildDeterministicArtifact(
   };
 }
 
-async function synthesizeArtifactWithOpenAI(
+async function synthesizeArtifactWithModelEngine(
   kind: WorkflowKind,
   dataset: any,
   toolCalls: string[],
   timezone: string,
 ): Promise<WorkflowArtifactResult> {
-  const openai = getOpenAIClient();
   const titleByKind: Record<WorkflowKind, string> = {
     morning_brief: 'Morning Brief',
     shutdown_review: 'Shutdown Review',
@@ -457,10 +454,10 @@ async function synthesizeArtifactWithOpenAI(
   const artifactKind: WorkflowArtifactKind =
     kind === 'morning_brief' ? 'morning_brief' : kind === 'shutdown_review' ? 'shutdown_review' : 'ambient_digest';
   const title = titleByKind[kind];
-  const response = await openai.chat.completions.create({
+  const response = await collectModelEngineResponse(defaultModelEngine, {
     model: 'gpt-4o-mini',
     temperature: 0.25,
-    response_format: { type: 'json_object' },
+    responseFormat: 'json_object',
     messages: [
       {
         role: 'system',
@@ -486,7 +483,7 @@ async function synthesizeArtifactWithOpenAI(
     ],
   });
 
-  const content = response.choices[0]?.message?.content || '{}';
+  const content = response.content || '{}';
   const parsed = JSON.parse(content) as { title?: string; summary?: string; blocks?: unknown[] };
   return {
     kind: artifactKind,
@@ -628,29 +625,74 @@ function chooseCollector(kind: WorkflowKind) {
 
 export async function executeWorkflow(payload: WorkflowExecutePayload, backendToken: string): Promise<WorkflowExecutionResult> {
   const compositeToken = `${backendToken}::${payload.user_id}`;
-  const collector = chooseCollector(payload.workflow_kind);
-  const collected = await collector(compositeToken, payload);
+  const config = payload.config || {};
+  const custom = isCustomRoutine(config);
+  const collected = custom
+    ? await collectCustomRoutine(compositeToken, payload)
+    : await chooseCollector(payload.workflow_kind)(compositeToken, payload);
 
   let artifact: WorkflowArtifactResult;
   let modelUsed = 'deterministic';
-  try {
-    artifact = await synthesizeArtifactWithOpenAI(payload.workflow_kind, collected.dataset, collected.tool_calls_made, payload.timezone);
-    modelUsed = 'gpt-4o-mini';
-  } catch (error) {
-    console.warn('[workflow-executor] falling back to deterministic renderer', error);
-    artifact = buildDeterministicArtifact(payload.workflow_kind, collected.dataset, collected.tool_calls_made, payload.timezone);
+  if (process.env.RITUAL_WORKFLOW_EXECUTOR_DISABLE_OPENAI === '1') {
+    artifact = custom
+      ? buildCustomDeterministicArtifact(config, collected.dataset, collected.tool_calls_made, payload.timezone)
+      : buildDeterministicArtifact(payload.workflow_kind, collected.dataset, collected.tool_calls_made, payload.timezone);
+  } else {
+    let turnRun = null;
+    try {
+      turnRun = await defaultAssistantKernel.runTurn({
+        turnId: `workflow:${payload.workflow_run_id}:artifact`,
+        conversationId: null,
+        channel: 'dashboard',
+        epoch: 0,
+        userMessage: `Generate the artifact for workflow run ${payload.workflow_run_id}`,
+        recordUserMessageInConversation: false,
+        store: getAssistantTurnStore(compositeToken),
+      });
+      if (turnRun.outcome === 'replay') {
+        if (!turnRun.turn.assistantText) {
+          throw new Error('Completed workflow turn is missing durable artifact content');
+        }
+        artifact = JSON.parse(turnRun.turn.assistantText) as WorkflowArtifactResult;
+        modelUsed = String(artifact.metadata?.model || 'gpt-4o-mini');
+      } else if (turnRun.outcome !== 'running') {
+        throw new Error(`Workflow turn is ${turnRun.outcome}`);
+      } else {
+        artifact = custom
+          ? await synthesizeCustomArtifactWithModelEngine(config, collected.dataset, collected.tool_calls_made, payload.timezone)
+          : await synthesizeArtifactWithModelEngine(payload.workflow_kind, collected.dataset, collected.tool_calls_made, payload.timezone);
+        await turnRun.complete({
+          assistantText: JSON.stringify(artifact),
+          toolPayload: {
+            kind: 'workflow_artifact',
+            workflowRunId: payload.workflow_run_id,
+          },
+        });
+        modelUsed = 'gpt-4o-mini';
+      }
+    } catch (error) {
+      console.warn('[workflow-executor] falling back to deterministic renderer', error);
+      if (turnRun?.outcome === 'running') {
+        await turnRun.fail(error).catch((failure) => {
+          console.error('[workflow-executor] failed to persist failed turn state', failure);
+        });
+      }
+      artifact = custom
+        ? buildCustomDeterministicArtifact(config, collected.dataset, collected.tool_calls_made, payload.timezone)
+        : buildDeterministicArtifact(payload.workflow_kind, collected.dataset, collected.tool_calls_made, payload.timezone);
+    }
   }
 
   artifact.metadata = {
     ...artifact.metadata,
     workflow_run_id: payload.workflow_run_id,
-    workflow_kind: payload.workflow_kind,
+    workflow_kind: custom ? 'custom_routine' : payload.workflow_kind,
     template_version: 1,
   };
 
-  const factSuggestions = buildFactSuggestions(payload.workflow_kind, collected.dataset);
-  const queueSuggestions = buildQueueSuggestions(payload.workflow_kind);
-  const proposedActions = buildProposedActions(payload.workflow_kind, queueSuggestions);
+  const factSuggestions = custom ? [] : buildFactSuggestions(payload.workflow_kind, collected.dataset);
+  const queueSuggestions = custom ? [] : buildQueueSuggestions(payload.workflow_kind);
+  const proposedActions = custom ? [] : buildProposedActions(payload.workflow_kind, queueSuggestions);
 
   return {
     plan: {

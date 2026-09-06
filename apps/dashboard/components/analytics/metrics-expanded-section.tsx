@@ -345,7 +345,7 @@ export function MetricsExpandedSection(ctx: Record<string, any>) {
                     disabled={isCapturing}
                     aria-label="Export chart image"
                     title="Export chart image"
-                    className="inline-flex h-[30px] w-[30px] items-center justify-center rounded-lg border border-[rgba(39,37,30,0.07)] bg-white text-[rgba(39,37,30,0.45)] transition-all duration-150 hover:bg-gray-50 hover:text-[#27251E] disabled:cursor-wait disabled:opacity-70 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400 focus-visible:ring-inset"
+                    className="inline-flex h-[30px] w-[30px] items-center justify-center rounded-sm border border-[rgba(39,37,30,0.07)] bg-white text-[rgba(39,37,30,0.45)] transition-all duration-150 hover:bg-[#F3F3F3] hover:text-[#27251E] disabled:cursor-wait disabled:opacity-70 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400 focus-visible:ring-inset"
                   >
                     <Camera className="h-3.5 w-3.5" />
                   </button>

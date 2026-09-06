@@ -54,6 +54,22 @@ const updaterEndpoint =
   process.env.RITUAL_UPDATER_ENDPOINT ||
   `https://github.com/${defaultUpdaterRepo || repoSlug}/releases/latest/download/latest.json`;
 
+function normalizeResources(resources) {
+  if (Array.isArray(resources)) {
+    return Object.fromEntries(resources.map((resource) => [resource, resource]));
+  }
+  if (resources && typeof resources === 'object') {
+    return { ...resources };
+  }
+  return {};
+}
+
+const bundleResources = {
+  ...normalizeResources(baseConfig.bundle?.resources),
+  '../.tauri-helper/Ritual.app': 'native/bin/Ritual.app',
+  '../.tauri-helper/RitualVoiceHud.app': 'native/bin/RitualVoiceHud.app',
+};
+
 const generatedConfig = {
   ...baseConfig,
   app: {
@@ -74,6 +90,7 @@ const generatedConfig = {
   bundle: {
     ...(baseConfig.bundle ?? {}),
     createUpdaterArtifacts: false,
+    resources: bundleResources,
     macOS: {
       ...(baseConfig.bundle?.macOS ?? {}),
       signingIdentity: null,

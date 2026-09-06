@@ -1,0 +1,57 @@
+name: Tinybird Deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Cloud deployment operation
+        required: true
+        default: check
+        type: choice
+        options:
+          - check
+          - stage
+          - promote
+
+concurrency:
+  group: tinybird-production
+  cancel-in-progress: false
+
+jobs:
+  tinybird:
+    runs-on: ubuntu-latest
+    environment: tinybird-production
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: apps/tinybird
+    env:
+      TB_TOKEN: ${{ secrets.TINYBIRD_TOKEN }}
+      TB_HOST: https://api.us-east.aws.tinybird.co
+      TB_CLI_TELEMETRY_OPTOUT: "1"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Tinybird CLI
+        run: curl -fsSL https://install.tinybird.co/install.sh | bash
+
+      - name: Validate credentials
+        run: test -n "${TB_TOKEN}"
+
+      - name: Build project
+        if: inputs.operation != 'promote'
+        run: tb --cloud build
+
+      - name: Check deployment
+        if: inputs.operation == 'check'
+        run: tb --cloud deployment create --check
+
+      - name: Create staging deployment
+        if: inputs.operation == 'stage'
+        run: tb --cloud deployment create --wait
+
+      - name: Promote staging deployment
+        if: inputs.operation == 'promote'
+        run: tb --cloud deployment promote --wait

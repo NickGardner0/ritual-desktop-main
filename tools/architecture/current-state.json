@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "sourceHead": "65ced577031db252495f505318229dc98b15090d",
+  "dashboardApi": {
+    "routeCount": 16,
+    "manifest": "tools/dashboard-api-routes.manifest.json",
+    "fixedNonJsonAdapters": [
+      "apps/dashboard/app/api/import/preview/route.ts",
+      "apps/dashboard/app/api/screenshot/preview/route.ts",
+      "apps/dashboard/app/api/wearables/apple/export/route.ts"
+    ]
+  },
+  "scheduler": {
+    "owner": "apps/backend/services/scheduler_service.py",
+    "executionOwner": "apps/backend/background_tasks.py",
+    "startupOwner": "apps/backend/lifespan.py",
+    "occurrenceTable": "scheduler_occurrence_claims",
+    "healthOperation": "GET /api/internal/scheduler/health",
+    "retainedExternalAdapters": [
+      { "path": "apps/backend/api/integrations.py", "claimFunction": "run_whoop_scheduler_job" },
+      { "path": "apps/backend/api/integrations.py", "claimFunction": "run_tesla_scheduler_job" },
+      { "path": "apps/backend/api/wearables_routes/sync_runs.py", "claimFunction": "run_whoop_scheduler_job" },
+      { "path": "apps/backend/api/wearables_routes/sync_runs.py", "claimFunction": "run_oura_garmin_scheduler_job" },
+      { "path": "apps/backend/api/financial.py", "claimFunction": "run_financial_scheduler_job" }
+    ],
+    "jobCount": 12,
+    "jobs": [
+      "whoop_auto_sync", "oura_garmin_auto_sync", "tesla_odometer_sync",
+      "financial_sync", "location_ping_retention", "google_calendar_reconciliation",
+      "habit_reports", "workflow_runs",
+      "ambient_signals", "wearable_ingest", "wearable_maintenance",
+      "wearable_event_outbox"
+    ]
+  },
+  "nativeGateway": {
+    "registered": 82,
+    "allowed": 82,
+    "frontendInvoked": 82,
+    "typedSignatures": 83,
+    "unregisteredTypedSignature": {
+      "name": "check_recording_source_readiness",
+      "path": "apps/desktop/src-tauri/src/system_audio.rs",
+      "classification": "Uncompiled and unreachable: the module is not declared by the Tauri binary and the command is absent from generate_handler, ACL, and frontend callers. Remove with evidence-backed dead-code work rather than treating it as a gateway command."
+    }
+  },
+  "chatEntrypoints": [
+    "apps/dashboard/app/api/chat/stream/route.ts",
+    "apps/dashboard/app/api/internal/workflows/execute/route.ts",
+    "packages/chat-runtime/src/index.ts"
+  ],
+  "chatOwnership": {
+    "manifest": "tools/architecture/chat-runtime-owners.json",
+    "turnLifecycleOwner": "packages/chat-runtime/src/assistant-kernel.ts#AssistantKernel.runTurn",
+    "providerOwner": "packages/chat-runtime/src/model-engine/openai-adapter.ts#OpenAIModelEngineAdapter.stream"
+  },
+  "desktopProcesses": ["Ritual", "Ritual QA", "Ritual Dev", "ritual-watcher", "ritual-vision-helper", "ritual-agent"],
+  "releaseTargets": {
+    "aarch64-apple-darwin": "implemented",
+    "x86_64-apple-darwin": "blocked_pending_real_intel_artifacts_and_runner"
+  },
+  "externalBlockers": [
+    "Trigger.dev project proj_hctghowrtnzbnyrgoecx disablement",
+    "Real Intel macOS runner and hardware smoke evidence",
+    "Apple signing/notarization and updater publication"
+  ]
+}

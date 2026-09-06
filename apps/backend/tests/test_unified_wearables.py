@@ -15,7 +15,7 @@ from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
-from services.unified_wearables_service import (
+from services.wearables_unified import (
     WearableNormalizationService,
     WearableProjectionService,
     build_wearable_outbox_event_for_event,
@@ -72,7 +72,34 @@ class WearableProjectionTests(unittest.TestCase):
 
         self.assertEqual(
             projection._default_projection_source_priority_for_habit(habit),
-            ["whoop", "apple_health"],
+            ["whoop", "apple_health", "oura", "garmin", "fitbit"],
+        )
+
+    def test_default_projection_policy_allows_whoop_as_secondary_for_apple_sleep(self):
+        projection = WearableProjectionService(WearableNormalizationService())
+        habit = SimpleNamespace(name="Sleep Duration", metric_type="sleep_session", integration_source="apple_health")
+
+        self.assertEqual(
+            projection._default_projection_source_priority_for_habit(habit),
+            ["apple_health", "whoop", "oura", "garmin", "fitbit"],
+        )
+
+    def test_sleep_projection_accepts_secondary_priority_provider(self):
+        projection = WearableProjectionService(WearableNormalizationService())
+
+        self.assertTrue(
+            projection._provider_allowed_by_projection_priority(
+                canonical_metric_type="sleep_total",
+                provider="whoop",
+                projection_source_priority=["apple_health", "whoop"],
+            )
+        )
+        self.assertFalse(
+            projection._provider_allowed_by_projection_priority(
+                canonical_metric_type="steps",
+                provider="whoop",
+                projection_source_priority=["apple_health", "whoop"],
+            )
         )
 
     def test_default_projection_policy_keeps_manual_workout_manual(self):
@@ -162,7 +189,7 @@ class WearableProviderAdapterTests(unittest.TestCase):
         providers = {item["provider"]: item for item in list_provider_defs()}
         self.assertEqual(providers["apple_health"]["delivery_modes"], ["client_sdk"])
         self.assertTrue(providers["apple_health"]["supports_anchor_confirmed_ingest"])
-        self.assertTrue(providers["garmin"]["supports_async_backfill"])
+        self.assertFalse(providers["garmin"]["supports_async_backfill"])
 
 
 class WearableCapabilityPlanningTests(unittest.TestCase):

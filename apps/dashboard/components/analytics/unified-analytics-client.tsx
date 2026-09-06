@@ -13,34 +13,30 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import { createPortal } from 'react-dom';
-import { useSearchParams, useRouter, usePathname } from 'next/navigation';
-import { Plus, Download, List, LayoutGrid } from 'lucide-react';
-import { useUIPreferences } from '@/hooks/use-ui-preferences';
+import { useSearchParams, useRouter, usePathname } from '@/lib/app-navigation';
+import { Plus, Download } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-} from '@/components/ui/dropdown-menu';
+} from '@ritual/ui/dropdown-menu';
 import type { DateRange } from 'react-day-picker';
-import { ViewModeToggle, ViewMode } from './view-mode-toggle';
+import type { ViewMode } from './view-mode-toggle';
 import { AnalyticsFilterProvider, useAnalyticsFilters } from './analytics-filter-context';
 import { useHabits } from '@/contexts/HabitsContext';
 import { useAI } from '@/contexts/AIContext';
 import { useQueryClient } from '@tanstack/react-query';
-import { useUser } from '@clerk/nextjs';
+import { useUser } from '@/lib/desktop-session';
 import { useDashboardSnapshotQuery } from '@/hooks/use-dashboard-snapshot-query';
 import { useMetricsSnapshotQuery } from '@/hooks/use-metrics-snapshot-query';
+import { resolveDashboardViewMode } from '@/lib/dashboard/view-mode-route.mjs';
 import { perfInfo } from '@/lib/perf-debug';
-import { invalidateAfterComputerSync, invalidateHabitData } from '@/lib/query-invalidation';
+import { OverviewViewMenuItems } from '@/components/analytics/overview-initial-section';
+import { useUIPreferences } from '@/hooks/use-ui-preferences';
+import { OverviewView } from './overview/OverviewView';
+import { invalidateHabitData } from '@/lib/query-invalidation';
 import { markReadConsistencyRequired } from '@/lib/read-consistency';
-// Import from separate file to avoid pulling in recharts (~500KB)
-const COMPUTER_SYNC_THROTTLE_MS = 5 * 60 * 1000;
-const COMPUTER_SYNC_LAST_KEY = 'ritual:computer-sync:last';
-const COMPUTER_SYNC_STARTUP_DELAY_MS = 4_000;
-const ENABLE_STARTUP_COMPUTER_SYNC = false;
 const DATE_FILTERED_LOG_REFRESH_THROTTLE_MS = 20_000;
 
 async function playHabitSuccessSound() {
@@ -80,20 +76,15 @@ async function playHabitSuccessSound() {
   }
 }
 
-// Dynamic imports with ssr:false — Turbopack skips these modules during
-// server-side compilation, cutting the initial /dashboard compile from ~70s.
+// Keep heavy views lazy. Overview already dynamic()s DateRangePicker; do the
+// same here so the calendar SDK stays off Index boot.
 const DateRangePicker = dynamic(
-  () => import('@/components/date-range-picker').then(m => ({ default: m.DateRangePicker })),
-  { loading: () => <ControlLoadingFallback /> }
-);
-
-const OverviewView = dynamic(
-  () => import('./overview-view').then(m => ({ default: m.OverviewView })),
-  { loading: () => <ViewLoadingFallback /> }
+  () => import('@/components/date-range-picker').then((m) => ({ default: m.DateRangePicker })),
+  { ssr: false },
 );
 
 const MetricsView = dynamic(
-  () => import('./metrics-view').then(m => ({ default: m.MetricsView })),
+  () => import('./metrics/MetricsView').then(m => ({ default: m.MetricsView })),
   { loading: () => <ViewLoadingFallback /> }
 );
 
@@ -112,11 +103,6 @@ const AIHabitChat = dynamic(
   { ssr: false }
 );
 
-const ConnectedDevicesBar = dynamic(
-  () => import("@/components/connected-devices-modal").then(m => ({ default: m.ConnectedDevicesBar })),
-  { ssr: false }
-);
-
 // Loading fallback for lazy-loaded views
 function ViewLoadingFallback() {
   return (
@@ -126,20 +112,9 @@ function ViewLoadingFallback() {
   );
 }
 
-// Compact loading fallback for controls
-function ControlLoadingFallback() {
-  return <div className="h-8 w-28 bg-gray-100 animate-pulse" />;
-}
-
 // Inner component that uses the filter context
-function UnifiedAnalyticsContent({
-  initialUserId,
-}: {
-  initialUserId?: string | null;
-}) {
+function UnifiedAnalyticsContent() {
   const { viewMode, setViewMode, dateRange, setDateRange, selectedHabits, setSelectedHabits, toggleHabit, selectAllHabits, clearHabitSelection } = useAnalyticsFilters();
-  const { overviewViewMode, setOverviewViewMode } = useUIPreferences();
-  const isSummaryView = overviewViewMode === 'summary';
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -156,91 +131,28 @@ function UnifiedAnalyticsContent({
   
   // Get AI context for chat
   const { showAIChat, isFullScreenChat } = useAI();
+  const { overviewViewMode, setOverviewViewMode } = useUIPreferences();
+  const isFetchView = overviewViewMode === 'summary';
   
   // For optimistic updates via React Query
   const queryClient = useQueryClient();
-  const { user, isLoaded: userLoaded, isSignedIn } = useUser();
+  const { user } = useUser();
   const {
     snapshot: dashboardSnapshot,
     isFetching: isDashboardSnapshotFetching,
-  } = useDashboardSnapshotQuery({ initialUserId, dateRange });
+  } = useDashboardSnapshotQuery({ dateRange });
   const {
     snapshot: metricsSnapshot,
   } = useMetricsSnapshotQuery({
-    initialUserId,
     dateRange,
     enabled: viewMode === 'metrics',
   });
   const metricsReadModel = metricsSnapshot ?? dashboardSnapshot;
-  const shellMountTimeRef = useRef(typeof performance !== 'undefined' ? performance.now() : Date.now());
+  const [shellMountTime] = useState(() => (typeof performance !== 'undefined' ? performance.now() : Date.now()));
+  const shellMountTimeRef = useRef(shellMountTime);
   const firstViewReadyLoggedRef = useRef(false);
   const lastDateFilteredLogRefreshKeyRef = useRef<string | null>(null);
   const lastDateFilteredLogRefreshAtRef = useRef(0);
-
-  // Keep "Computer Use" habit in sync after initial paint so startup is not
-  // blocked by a write + read-after-write cycle.
-  const syncAbortRef = useRef<AbortController | null>(null);
-  const syncTimerRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    if (!ENABLE_STARTUP_COMPUTER_SYNC) {
-      return;
-    }
-
-    const syncComputerUseHabit = async (signal: AbortSignal) => {
-      if (typeof window !== 'undefined') {
-        const lastSyncedAt = Number(sessionStorage.getItem(COMPUTER_SYNC_LAST_KEY) || '0');
-        const tooSoon = Date.now() - lastSyncedAt < COMPUTER_SYNC_THROTTLE_MS;
-        if (tooSoon) {
-          return;
-        }
-      }
-
-      try {
-        // Use lightweight single-day sync on page load. Backfills/reconcile should be manual.
-        const response = await fetch('/api/watcher/sync-to-habit', { method: 'POST', signal });
-        if (!response.ok) {
-          return;
-        }
-        const result = await response.json();
-        if (typeof window !== 'undefined') {
-          sessionStorage.setItem(COMPUTER_SYNC_LAST_KEY, String(Date.now()));
-        }
-        if (signal.aborted) {
-          return;
-        }
-        if (result?.success && result?.synced) {
-          markReadConsistencyRequired(user?.id);
-          await invalidateAfterComputerSync(queryClient, user?.id);
-        }
-      } catch (error) {
-        if (error instanceof DOMException && error.name === 'AbortError') return;
-        console.debug('Computer use sync failed:', error);
-      }
-    };
-
-    if (userLoaded && isSignedIn) {
-      syncAbortRef.current?.abort();
-      if (syncTimerRef.current !== null && typeof window !== 'undefined') {
-        window.clearTimeout(syncTimerRef.current);
-      }
-      if (typeof window !== 'undefined') {
-        syncTimerRef.current = window.setTimeout(() => {
-          const controller = new AbortController();
-          syncAbortRef.current = controller;
-          void syncComputerUseHabit(controller.signal);
-        }, COMPUTER_SYNC_STARTUP_DELAY_MS);
-      }
-    }
-
-    return () => {
-      syncAbortRef.current?.abort();
-      if (syncTimerRef.current !== null && typeof window !== 'undefined') {
-        window.clearTimeout(syncTimerRef.current);
-        syncTimerRef.current = null;
-      }
-    };
-  }, [queryClient, user?.id, userLoaded, isSignedIn]);
 
   useEffect(() => {
     const rangeKey = dateRange?.from
@@ -311,18 +223,17 @@ function UnifiedAnalyticsContent({
   
   // Sync view mode with URL
   useEffect(() => {
-    const viewParam = searchParams.get('view');
-    if (viewParam === 'chat' || viewParam === 'overview' || viewParam === 'metrics') {
-      setViewMode(viewParam);
-    }
+    setViewMode(resolveDashboardViewMode(searchParams));
   }, [searchParams, setViewMode]);
 
   useEffect(() => {
     const shouldOpenImport = searchParams.get('openImport') === '1';
     if (!shouldOpenImport) return;
 
-    setViewMode('overview');
-    setShowImportModal(true);
+    queueMicrotask(() => {
+      setViewMode('overview');
+      setShowImportModal(true);
+    });
 
     const params = new URLSearchParams(searchParams.toString());
     params.delete('openImport');
@@ -374,21 +285,6 @@ function UnifiedAnalyticsContent({
     };
   }, [dashboardSnapshot.overviewStats, habits.length, metricsReadModel.metricsAnalyticsData, viewMode]);
   
-  // Update URL when view mode changes
-  const handleViewChange = useCallback((newView: ViewMode) => {
-    if (newView === 'chat') {
-      // Navigate to the dedicated full chat page
-      router.push('/chat');
-      return;
-    }
-    setViewMode(newView);
-
-    // Update URL without triggering navigation
-    const params = new URLSearchParams(searchParams.toString());
-    params.set('view', newView);
-    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
-  }, [setViewMode, router, pathname, searchParams]);
-
   // Handle habit creation
   const handleHabitCreated = useCallback(async () => {
     try {
@@ -405,26 +301,16 @@ function UnifiedAnalyticsContent({
   // fires *after* paint, finds the freshly-mounted nodes, and triggers a
   // re-render that wires up the portals.
   const [headerRightSlot, setHeaderRightSlot] = useState<HTMLElement | null>(null);
-  const [headerCenterSlot, setHeaderCenterSlot] = useState<HTMLElement | null>(null);
 
   useEffect(() => {
     const right = document.getElementById('header-right-slot');
-    const center = document.getElementById('header-center-slot');
-    setHeaderRightSlot(right);
-    setHeaderCenterSlot(center);
+    queueMicrotask(() => {
+      setHeaderRightSlot(right);
+    });
   }, [isFullScreenChat]);
 
   return (
-    <div className="space-y-3">
-      {/* Tab bar — portalled into header center slot */}
-      {!isFullScreenChat && headerCenterSlot && createPortal(
-        <ViewModeToggle
-          currentView={viewMode}
-          onViewChange={handleViewChange}
-        />,
-        headerCenterSlot
-      )}
-
+    <div className="relative h-full min-h-0 overflow-hidden">
       {/* + button (overview) + Date picker — portalled into header right slot, hidden in chat mode */}
       {!isFullScreenChat && viewMode !== 'chat' && headerRightSlot && createPortal(
         <>
@@ -432,27 +318,25 @@ function UnifiedAnalyticsContent({
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
-                  className="h-8 w-8 border border-gray-300 shadow-sm bg-white text-gray-500 hover:text-gray-900 hover:bg-[#F5F5F5] transition-colors flex items-center justify-center rounded-sm focus:outline-none"
-                  aria-label="Overview menu"
+                  type="button"
+                  className="app-toolbar-pill-button"
+                  aria-label="Dashboard actions"
+                  title="Dashboard actions"
                 >
-                  <Plus className="w-3.5 h-3.5" />
+                  <Plus strokeWidth={1.75} />
+                  <span>Actions</span>
                 </button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" sideOffset={6} className="w-44">
-                <DropdownMenuLabel className="text-[11px] font-normal uppercase tracking-wide text-gray-500">
-                  View
-                </DropdownMenuLabel>
-                <DropdownMenuItem onClick={() => { void setOverviewViewMode('list'); }}>
-                  <List className="w-3.5 h-3.5 mr-2" />
-                  <span>List</span>
-                  {!isSummaryView && <span className="ml-auto text-[11px] text-gray-500">✓</span>}
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => { void setOverviewViewMode('summary'); }}>
-                  <LayoutGrid className="w-3.5 h-3.5 mr-2" />
-                  <span>Card</span>
-                  {isSummaryView && <span className="ml-auto text-[11px] text-gray-500">✓</span>}
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
+              <DropdownMenuContent
+                align="end"
+                sideOffset={6}
+                className="w-44 rounded-md border-[rgba(31,35,40,0.1)]"
+              >
+                <OverviewViewMenuItems
+                  isFetchView={isFetchView}
+                  onSelectList={() => { void setOverviewViewMode('list'); }}
+                  onSelectFetch={() => { void setOverviewViewMode('summary'); }}
+                />
                 <DropdownMenuItem onClick={() => setShowSelectionModal(true)}>
                   <Plus className="w-3.5 h-3.5 mr-2" />
                   Add habit
@@ -466,6 +350,7 @@ function UnifiedAnalyticsContent({
           )}
           <DateRangePicker
             className="w-auto"
+            variant="titlebar"
             onDateRangeChange={setDateRange}
             initialDateRange={dateRange}
           />
@@ -474,13 +359,13 @@ function UnifiedAnalyticsContent({
       )}
 
       {/* Content Area with smooth view switching */}
-      <div className="relative min-h-[400px] pt-1">
-        {/* Overview View - Lazy loaded */}
+      <div className="relative h-full min-h-0 pt-1">
+        {/* Overview View */}
         <div 
           role="tabpanel"
           id="overview-panel"
           aria-labelledby="overview-tab"
-          className={`transition-all duration-200 ease-out ${
+          className={`h-full min-h-0 transition-[opacity,transform] duration-200 ease-out ${
             viewMode === 'overview' 
               ? 'opacity-100 translate-y-0' 
               : 'opacity-0 translate-y-2 absolute inset-0 pointer-events-none'
@@ -500,7 +385,7 @@ function UnifiedAnalyticsContent({
           role="tabpanel"
           id="metrics-panel"
           aria-labelledby="metrics-tab"
-          className={`transition-all duration-200 ease-out ${
+          className={`transition-[opacity,transform] duration-200 ease-out ${
             viewMode === 'metrics' 
               ? 'opacity-100 translate-y-0' 
               : 'opacity-0 translate-y-2 absolute inset-0 pointer-events-none'
@@ -543,11 +428,15 @@ function UnifiedAnalyticsContent({
       {/* AI Habit Chat - Fixed near bottom, only visible in Overview mode */}
       {showAIChat && viewMode === 'overview' && (
         <div
-          className="fixed bottom-[32px] right-0 flex justify-center px-4 sm:px-6 lg:px-8 pb-3 pt-3 bg-gradient-to-t from-white/95 via-white/70 to-transparent pointer-events-none"
-          style={{ left: 'var(--ritual-sidebar-current-width, 76px)' }}
+          className="pointer-events-none fixed bottom-[24px] flex justify-center px-4 pb-2 pt-2 sm:px-6 lg:px-8"
+          style={{
+            left: 'var(--ritual-sidebar-current-width, 76px)',
+            right: 'var(--ritual-right-dock-width, 0px)',
+          }}
         >
-          <div className="w-full max-w-2xl pointer-events-auto">
+          <div className="pointer-events-auto w-full max-w-[660px]">
                 <AIHabitChat
+                onImportData={() => setShowImportModal(true)}
                 onHabitUpdate={async (habitData) => {
                   console.log('🎯 Habit update from AI:', habitData);
                   
@@ -590,37 +479,27 @@ function UnifiedAnalyticsContent({
         </div>
       )}
 
-      {/* Connected devices button below chat bar */}
-      {viewMode === 'overview' && (
-        <ConnectedDevicesBar />
-      )}
     </div>
   );
 }
 
 // Determine initial view mode from URL
 function getInitialViewMode(searchParams: URLSearchParams): ViewMode {
-  const viewParam = searchParams.get('view');
-  if (viewParam === 'overview' || viewParam === 'metrics') {
-    return viewParam;
-  }
-  return 'overview'; // Default to overview
+  return resolveDashboardViewMode(searchParams);
 }
 
 // Main component with provider wrapper
 export function UnifiedAnalyticsClient({
   initialViewMode,
-  initialUserId,
 }: {
   initialViewMode?: ViewMode;
-  initialUserId?: string | null;
 }) {
   const searchParams = useSearchParams();
   const resolvedInitialViewMode = initialViewMode ?? getInitialViewMode(searchParams);
 
   return (
     <AnalyticsFilterProvider initialViewMode={resolvedInitialViewMode}>
-      <UnifiedAnalyticsContent initialUserId={initialUserId} />
+      <UnifiedAnalyticsContent />
     </AnalyticsFilterProvider>
   );
 }

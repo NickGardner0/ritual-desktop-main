@@ -4,7 +4,7 @@ import type { Dispatch, SetStateAction } from 'react';
 import { AlertTriangle, Check, ChevronDown, ChevronUp, X } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
-import { BrailleSpinner } from './braille-spinner';
+import { BrailleSpinner } from '@/components/ui/braille-spinner';
 import type { HabitOption, ScreenshotPreview } from './ai-habit-chat.types';
 
 interface ScreenshotConfirmationModalProps {
@@ -225,7 +225,7 @@ export function ScreenshotConfirmationModal({
                                 setShowHabitPicker(false);
                               }}
                               className={cn(
-                                "flex w-full items-center gap-2 border-b border-gray-200 px-2.5 py-1.5 text-left text-sm hover:bg-[#F3F3F3]",
+                                "flex w-full items-center gap-2 border-b border-gray-200 px-2.5 py-1.5 text-left text-sm ritual-snappy-row ritual-snappy-row-menu",
                                 !selectedHabitId && "bg-[#F3F3F3]"
                               )}
                             >
@@ -244,7 +244,7 @@ export function ScreenshotConfirmationModal({
                                   setShowHabitPicker(false);
                                 }}
                                 className={cn(
-                                  "flex w-full items-center justify-between px-2.5 py-1.5 text-left text-sm hover:bg-[#F3F3F3]",
+                                  "flex w-full items-center justify-between px-2.5 py-1.5 text-left text-sm ritual-snappy-row ritual-snappy-row-menu",
                                   selectedHabitId === habit.id && "bg-[#F3F3F3]"
                                 )}
                               >

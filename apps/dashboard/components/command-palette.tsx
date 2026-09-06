@@ -1,68 +1,25 @@
 'use client';
 
 import * as React from "react";
-import dynamic from "next/dynamic";
-import { Command } from "cmdk";
-// REMOVED: import * as LucideIcons from "lucide-react" - this imported 400+ icons
-// Now using dynamic import for the icon component
-import { 
-  Search, 
-  List, 
-  BarChart3, 
-  CalendarDays,
-  Wifi, 
-  Bot, 
-  Timer, 
-  Focus, 
-  Eye, 
-  FileText, 
-  TrendingUp, 
-  Download,
-  Plus,
-  Settings,
-  Upload,
-  Watch,
-  MessageSquare,
-  Monitor,
-  Activity,
-  Clock,
-  Hash,
-  LayoutDashboard,
-  ShieldCheck,
-  Sparkles,
-} from "lucide-react";
-
-// Dynamic icon component - loads lucide icons on-demand
-const DynamicIcon = dynamic(() => import('@/components/ui/dynamic-icon'), {
-  ssr: false,
-  loading: () => <LayoutDashboard className="w-4 h-4 text-gray-400" />,
-});
-
-// Check if string is an emoji
-const isEmoji = (str: string) => /[\u{1F600}-\u{1F64F}]|[\u{1F300}-\u{1F5FF}]|[\u{1F680}-\u{1F6FF}]|[\u{1F1E0}-\u{1F1FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]/u.test(str);
-
-// Render habit icon - handles both emojis and Lucide icon names
-const HabitIcon = ({ iconName, className = "w-4 h-4" }: { iconName?: string; className?: string }) => {
-  if (!iconName) {
-    return <LayoutDashboard className={`${className} text-gray-400`} />;
-  }
-  
-  // If it's an emoji, render directly
-  if (isEmoji(iconName)) {
-    return <span className="text-base leading-none">{iconName}</span>;
-  }
-  
-  // Use dynamic icon loader for Lucide icons
-  return <DynamicIcon name={iconName} className={`${className} text-gray-600`} />;
-};
-import * as DialogPrimitive from "@radix-ui/react-dialog";
+import { Search, Clock, Hash, MessageSquare } from "lucide-react";
+import { HabitIcon, commandPaletteIconMap } from "@/components/command-palette.icons";
+import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
 import { useAnalytics } from "@/lib/analytics";
 import { useRouter } from "next/navigation";
 import { useDebounce } from "@/hooks/use-debounce";
 import { format, parseISO } from "date-fns";
 import { BrailleSpinner } from "@/components/ui/braille-spinner";
+import { useAuth, useUser } from "@clerk/nextjs";
+import type { EntitySummary } from "@ritual/shared-contracts";
+import { entityProtocolEnabled } from "@/lib/entities/feature-flag";
+import { rememberEntitySummary, searchLocalEntities, summaryFromCloud } from "@/lib/entities/resolve";
+import { apiOperationWithAuth } from "@/lib/api/client";
+import { mergeEntitySummaries, summariesFromSearchBuckets } from "@/lib/entities/search-normalize";
+import { ENTITY_TYPE_LABELS } from "@/lib/entities/registry";
+
+const paletteRowClass =
+  "ritual-snappy-row ritual-snappy-row-menu flex w-full cursor-pointer items-center gap-3 rounded-md px-2.5 py-2 text-left outline-none";
 
 // ================================
 // TYPES
@@ -103,38 +60,17 @@ interface SearchResults {
   logs: { hits: LogResult[]; found: number };
   conversations: { hits: any[]; found: number };
   activity: { hits: any[]; found: number };
-  artifacts: { hits: any[]; found: number };
-  workflows: { hits: any[]; found: number };
-  facts: { hits: any[]; found: number };
+  artifacts?: { hits: any[]; found: number };
   fallback?: boolean;
+  privacy_blocked?: boolean;
+  entities?: EntitySummary[];
 }
 
 // ================================
 // ICON MAPPING
 // ================================
 
-const iconMap: Record<string, React.ReactNode> = {
-  "plus": <Plus className="h-4 w-4" />,
-  "search": <Search className="h-4 w-4" />,
-  "bar-chart": <BarChart3 className="h-4 w-4" />,
-  "calendar": <CalendarDays className="h-4 w-4" />,
-  "bot": <Bot className="h-4 w-4" />,
-  "upload": <Upload className="h-4 w-4" />,
-  "watch": <Watch className="h-4 w-4" />,
-  "settings": <Settings className="h-4 w-4" />,
-  "download": <Download className="h-4 w-4" />,
-  "timer": <Timer className="h-4 w-4" />,
-  "focus": <Focus className="h-4 w-4" />,
-  "eye": <Eye className="h-4 w-4" />,
-  "file": <FileText className="h-4 w-4" />,
-  "trending": <TrendingUp className="h-4 w-4" />,
-  "list": <List className="h-4 w-4" />,
-  "wifi": <Wifi className="h-4 w-4" />,
-  "message": <MessageSquare className="h-4 w-4" />,
-  "monitor": <Monitor className="h-4 w-4" />,
-  "activity": <Activity className="h-4 w-4" />,
-  "sparkles": <Sparkles className="h-4 w-4" />,
-};
+const iconMap = commandPaletteIconMap;
 
 // ================================
 // PROPS
@@ -147,6 +83,44 @@ interface CommandPaletteProps {
   onOpenImport?: () => void;
   onOpenSettings?: () => void;
   density?: "default" | "tight";
+  triggerVariant?: "label" | "icon";
+}
+
+function getLocalQuickActions(q: string): QuickAction[] {
+  const actions: QuickAction[] = [
+    { id: "log-habit", name: "Log habit", keywords: ["log", "track", "add"], action: "navigate", path: "/dashboard?view=overview&compose=log", icon: "plus" },
+    { id: "search-logs", name: "Search logs", keywords: ["find", "search", "history"], action: "navigate", path: "/activity", icon: "search" },
+    { id: "view-metrics", name: "View metrics", keywords: ["stats", "charts", "analytics", "metrics"], action: "navigate", path: "/dashboard?view=metrics", icon: "bar-chart" },
+    { id: "open-calendar", name: "Open calendar", keywords: ["calendar", "schedule"], action: "navigate", path: "/calendar", icon: "calendar" },
+    { id: "ai-assistant", name: "Ask AI", keywords: ["ai", "chat", "ask", "analyze"], action: "navigate", path: "/chat", icon: "bot" },
+    { id: "open-reports", name: "Open reports", keywords: ["reports"], action: "navigate", path: "/reports", icon: "file" },
+    { id: "import-data", name: "Import data", keywords: ["import", "upload", "csv"], action: "navigate", path: "/dashboard?view=overview&openImport=1", icon: "upload" },
+    { id: "connect-wearables", name: "Integrations", keywords: ["whoop", "oura", "garmin", "apple", "connect"], action: "navigate", path: "/integrations", icon: "watch" },
+    { id: "settings", name: "Settings", keywords: ["settings", "preferences"], action: "navigate", path: "/dashboard?openSettings=general", icon: "settings" },
+    { id: "sentry-smoke", name: "Sentry smoke tests", keywords: ["sentry", "smoke", "observability", "monitoring", "diagnostics"], action: "navigate", path: "/sentry-smoke", icon: "settings" },
+  ];
+
+  if (!q) return actions;
+  const qLower = q.toLowerCase();
+  return actions.filter(a =>
+    a.name.toLowerCase().includes(qLower) ||
+    a.keywords?.some(k => k.includes(qLower) || qLower.includes(k))
+  );
+}
+
+function getFallbackResults(q: string): SearchResults {
+  const filteredActions = getLocalQuickActions(q);
+
+  return {
+    query: q,
+    quick_actions: filteredActions.slice(0, 6),
+    habits: { hits: [], found: 0 },
+    logs: { hits: [], found: 0 },
+    conversations: { hits: [], found: 0 },
+    activity: { hits: [], found: 0 },
+    fallback: true,
+    entities: [],
+  };
 }
 
 // ================================
@@ -160,6 +134,7 @@ export default function CommandPalette({
   onOpenImport,
   onOpenSettings,
   density = "default",
+  triggerVariant = "label",
 }: CommandPaletteProps) {
   const [open, setOpen] = React.useState(initialOpen);
   const [query, setQuery] = React.useState("");
@@ -167,8 +142,11 @@ export default function CommandPalette({
   const [isLoading, setIsLoading] = React.useState(false);
   
   const router = useRouter();
+  const { user } = useUser();
+  const { getToken } = useAuth();
   const { trackQuickActionsOpened, track } = useAnalytics();
   const inputRef = React.useRef<HTMLInputElement>(null);
+  const [activeIndex, setActiveIndex] = React.useState(0);
   
   // Debounce search query
   const debouncedQuery = useDebounce(query, 150);
@@ -194,28 +172,53 @@ export default function CommandPalette({
   // ================================
   // SEARCH API
   // ================================
-  
+
   React.useEffect(() => {
     const fetchResults = async () => {
       setIsLoading(true);
       
       try {
-        const params = new URLSearchParams();
-        params.set("q", debouncedQuery);
-        params.set("limit", "8");
-        
-        const response = await fetch(`/api/search?${params.toString()}`);
-        
-        if (response.ok) {
-          const data = await response.json();
-          setResults(data);
-        } else {
-          // Use fallback
-          setResults(getFallbackResults(debouncedQuery));
+        const data = await apiOperationWithAuth(
+          "global_search_api_search_get",
+          getToken,
+          { query: { q: debouncedQuery, limit: 8 } },
+          user?.id,
+        ) as SearchResults;
+        let entities: EntitySummary[] = summariesFromSearchBuckets(
+          data as unknown as Parameters<typeof summariesFromSearchBuckets>[0],
+        );
+        if (entityProtocolEnabled()) {
+          try {
+            const entityPayload = await apiOperationWithAuth(
+              "search_entities_api_entities_search_get",
+              getToken,
+              { query: { q: debouncedQuery, limit: 16 } },
+              user?.id,
+            );
+            entities = mergeEntitySummaries(entities, (entityPayload.items || []).map(summaryFromCloud));
+          } catch {
+            // Keep bucket-normalized results.
+          }
+          if (user?.id) {
+            const local = await searchLocalEntities(user.id, debouncedQuery);
+            entities = mergeEntitySummaries(local, entities);
+          }
         }
+        for (const item of entities) rememberEntitySummary(item);
+        setResults({ ...data, entities });
       } catch (error) {
         console.error("Search failed:", error);
-        setResults(getFallbackResults(debouncedQuery));
+        const fallback = getFallbackResults(debouncedQuery);
+        if (entityProtocolEnabled() && user?.id) {
+          try {
+            const local = await searchLocalEntities(user.id, debouncedQuery);
+            for (const item of local) rememberEntitySummary(item);
+            fallback.entities = local;
+          } catch {
+            // Keep empty fallback entities.
+          }
+        }
+        setResults(fallback);
       } finally {
         setIsLoading(false);
       }
@@ -224,54 +227,7 @@ export default function CommandPalette({
     if (open) {
       fetchResults();
     }
-  }, [debouncedQuery, open]);
-
-  // ================================
-  // FALLBACK RESULTS
-  // ================================
-  
-  const getLocalQuickActions = (q: string): QuickAction[] => {
-    const actions: QuickAction[] = [
-      { id: "log-habit", name: "Log habit", keywords: ["log", "track", "add"], action: "navigate", path: "/dashboard?view=overview&compose=log", icon: "plus" },
-      { id: "search-logs", name: "Search logs", keywords: ["find", "search", "history"], action: "navigate", path: "/activity", icon: "search" },
-      { id: "view-metrics", name: "View metrics", keywords: ["stats", "charts", "analytics", "metrics"], action: "navigate", path: "/dashboard?view=metrics", icon: "bar-chart" },
-      { id: "open-calendar", name: "Open calendar", keywords: ["calendar", "schedule"], action: "navigate", path: "/calendar", icon: "calendar" },
-      { id: "ai-assistant", name: "Ask AI", keywords: ["ai", "chat", "ask", "analyze"], action: "navigate", path: "/chat", icon: "bot" },
-      { id: "open-reports", name: "Open reports", keywords: ["reports", "artifacts", "notebooks", "plans"], action: "navigate", path: "/reports", icon: "file" },
-      { id: "import-data", name: "Import data", keywords: ["import", "upload", "csv"], action: "navigate", path: "/dashboard?view=overview&openImport=1", icon: "upload" },
-      { id: "connect-wearables", name: "Integrations", keywords: ["whoop", "oura", "garmin", "apple", "connect"], action: "navigate", path: "/integrations", icon: "watch" },
-      { id: "settings", name: "Settings", keywords: ["settings", "preferences"], action: "navigate", path: "/dashboard?openSettings=account", icon: "settings" },
-      { id: "sentry-smoke", name: "Sentry smoke tests", keywords: ["sentry", "smoke", "observability", "monitoring", "diagnostics"], action: "navigate", path: "/sentry-smoke", icon: "settings" },
-    ];
-    
-    let filteredActions = actions;
-    if (q) {
-      const qLower = q.toLowerCase();
-      filteredActions = actions.filter(a => 
-        a.name.toLowerCase().includes(qLower) ||
-        a.keywords?.some(k => k.includes(qLower) || qLower.includes(k))
-      );
-    }
-
-    return filteredActions;
-  };
-
-  const getFallbackResults = (q: string): SearchResults => {
-    const filteredActions = getLocalQuickActions(q);
-    
-    return {
-      query: q,
-      quick_actions: filteredActions.slice(0, 6),
-      habits: { hits: [], found: 0 },
-      logs: { hits: [], found: 0 },
-      conversations: { hits: [], found: 0 },
-      activity: { hits: [], found: 0 },
-      artifacts: { hits: [], found: 0 },
-      workflows: { hits: [], found: 0 },
-      facts: { hits: [], found: 0 },
-      fallback: true,
-    };
-  };
+  }, [debouncedQuery, getToken, open, user?.id]);
 
   const paletteActions = React.useMemo(() => {
     const trimmedQuery = debouncedQuery.trim();
@@ -353,7 +309,7 @@ export default function CommandPalette({
         break;
       case "open_settings":
         if (onOpenSettings) onOpenSettings();
-        else router.push("/dashboard?openSettings=account");
+        else router.push("/dashboard?openSettings=general");
         break;
       case "export":
         router.push("/dashboard?view=metrics&export=true");
@@ -386,25 +342,11 @@ export default function CommandPalette({
     router.push(`/chat?conversation=${conv.conversation_id}`);
   };
 
-  const handleArtifactSelect = (artifact: any) => {
-    track('search_artifact_selected', { artifactId: artifact.id, kind: artifact.kind });
+  const handleEntitySelect = (summary: EntitySummary) => {
+    track('search_entity_selected', { entityType: summary.ref.type, entityId: summary.ref.id });
     setOpen(false);
     setQuery("");
-    router.push(`/reports?artifactId=${artifact.id}`);
-  };
-
-  const handleWorkflowSelect = (workflow: any) => {
-    track('search_workflow_selected', { workflowId: workflow.id, kind: workflow.kind });
-    setOpen(false);
-    setQuery("");
-    router.push(`/reports?definitionId=${workflow.id}`);
-  };
-
-  const handleFactSelect = (fact: any) => {
-    track('search_fact_selected', { factId: fact.id, predicate: fact.predicate });
-    setOpen(false);
-    setQuery("");
-    router.push(`/reports?memory=1&factId=${fact.id}`);
+    router.push(summary.route);
   };
 
   // ================================
@@ -426,309 +368,374 @@ export default function CommandPalette({
   // ================================
   // RENDER
   // ================================
-  
-  // Button when closed
+
+  const hasResults = Boolean(
+    results && (
+      paletteActions.length > 0 ||
+      results.habits.found > 0 ||
+      results.logs.found > 0 ||
+      results.conversations.found > 0 ||
+      results.activity.found > 0 ||
+      (results.entities && results.entities.length > 0)
+    ),
+  );
+
+  type PaletteEntry =
+    | { kind: "action"; key: string; run: () => void }
+    | { kind: "habit"; key: string; run: () => void }
+    | { kind: "log"; key: string; run: () => void }
+    | { kind: "conversation"; key: string; run: () => void }
+    | { kind: "entity"; key: string; run: () => void };
+
+  const selectableEntries = React.useMemo(() => {
+    const entries: PaletteEntry[] = [];
+    for (const action of paletteActions) {
+      entries.push({
+        kind: "action",
+        key: `action:${action.id}:${action.path || action.name}`,
+        run: () => handleActionSelect(action),
+      });
+    }
+    if (!(entityProtocolEnabled() && (results?.entities?.length || 0) > 0)) {
+      for (const habit of results?.habits?.hits?.slice(0, 5) || []) {
+        entries.push({
+          kind: "habit",
+          key: `habit:${habit.id}`,
+          run: () => handleHabitSelect(habit),
+        });
+      }
+      for (const log of results?.logs?.hits?.slice(0, 5) || []) {
+        entries.push({
+          kind: "log",
+          key: `log:${log.id}`,
+          run: () => handleLogSelect(log),
+        });
+      }
+      for (const conv of results?.conversations?.hits?.slice(0, 3) || []) {
+        entries.push({
+          kind: "conversation",
+          key: `conv:${conv.id}`,
+          run: () => handleConversationSelect(conv),
+        });
+      }
+    }
+    for (const summary of results?.entities?.slice(0, 12) || []) {
+      entries.push({
+        kind: "entity",
+        key: `entity:${summary.ref.type}:${summary.ref.id}`,
+        run: () => handleEntitySelect(summary),
+      });
+    }
+    return entries;
+  }, [paletteActions, results]);
+
+  React.useEffect(() => {
+    setActiveIndex(0);
+  }, [debouncedQuery, open, selectableEntries.length]);
+
+  React.useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setOpen(false);
+        setQuery("");
+        return;
+      }
+      if (!selectableEntries.length) return;
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        setActiveIndex((index) => (index + 1) % selectableEntries.length);
+      } else if (event.key === "ArrowUp") {
+        event.preventDefault();
+        setActiveIndex((index) => (index - 1 + selectableEntries.length) % selectableEntries.length);
+      } else if (event.key === "Enter") {
+        event.preventDefault();
+        selectableEntries[activeIndex]?.run();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [open, selectableEntries, activeIndex]);
+
+  React.useEffect(() => {
+    if (open) {
+      requestAnimationFrame(() => inputRef.current?.focus());
+    }
+  }, [open]);
+
+  // Button when closed — Midday-style quiet search affordance (icon + label, no chrome box)
   if (!open) {
     const isTight = density === "tight";
+    const isIconTrigger = triggerVariant === "icon";
     return (
-      <Button
-        variant="outline"
-        role="combobox"
+      <button
+        type="button"
+        aria-haspopup="dialog"
         aria-expanded={open}
+        aria-label="Search"
+        title={isIconTrigger ? "Search" : undefined}
         onClick={() => {
           setOpen(true);
           trackQuickActionsOpened();
         }}
         className={cn(
-          "justify-between border border-gray-200/90 bg-white shadow-sm hover:bg-gray-50 rounded-none",
-          className
+          "inline-flex items-center border-0 bg-transparent shadow-none transition-colors",
+          "text-[rgba(39,37,30,0.55)] hover:text-[#27251E] focus-visible:outline-none focus-visible:ring-0",
+          isIconTrigger
+            ? "h-7 w-7 justify-center p-0"
+            : isTight
+              ? "h-7 gap-1.5 px-1 text-[14px]"
+              : "h-8 gap-2 px-1.5 text-[15px]",
+          className,
         )}
       >
-        <div className={cn("flex items-center", isTight ? "gap-1.5" : "gap-2")}>
-          <span>Search</span>
-          <kbd
-            className={cn(
-              "pointer-events-none inline-flex select-none items-center border border-gray-200/90 bg-[#F0F0F0]/90 font-mono font-medium text-muted-foreground opacity-100",
-              isTight ? "h-[18px] gap-0.5 px-1.5 text-[9px]" : "h-5 gap-1 px-1.5 text-[10px]"
-            )}
-          >
-            <span className={cn(isTight ? "text-[10px]" : "text-xs")}>⌘</span>K
-          </kbd>
-        </div>
-      </Button>
+        <Search
+          className={cn(
+            "shrink-0 opacity-80",
+            isIconTrigger || isTight ? "h-4 w-4" : "h-[18px] w-[18px]",
+          )}
+          strokeWidth={1.85}
+          aria-hidden
+        />
+        {!isIconTrigger ? <span className="font-normal leading-none">Search...</span> : null}
+      </button>
     );
   }
 
-  const hasResults = results && (
-    paletteActions.length > 0 ||
-    results.habits.found > 0 ||
-    results.logs.found > 0 ||
-    results.conversations.found > 0 ||
-    results.artifacts.found > 0 ||
-    results.workflows.found > 0 ||
-    results.facts.found > 0
-  );
+  if (typeof document === "undefined") return null;
 
-  return (
-    <DialogPrimitive.Root open={open} onOpenChange={(o) => { setOpen(o); if (!o) setQuery(""); }}>
-      <DialogPrimitive.Portal>
-        {/* High z-index overlay to cover sidebar (z-[1001]) */}
-        <DialogPrimitive.Overlay className="fixed inset-0 z-[9998] bg-[rgba(232,229,223,0.18)] backdrop-blur-[2px] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
-        <DialogPrimitive.Content
-          className="fixed left-[50%] top-[50%] z-[9999] translate-x-[-50%] translate-y-[-50%] w-full md:max-w-[680px] select-text border-none shadow-2xl focus:outline-none"
+  let optionIndex = -1;
+  const nextOptionIndex = () => {
+    optionIndex += 1;
+    return optionIndex;
+  };
+
+  const modal = (
+    <div className="fixed inset-0 z-[9999] h-[100dvh] w-screen overflow-hidden">
+      <div
+        className="absolute inset-0 bg-[rgba(232,229,223,0.22)] backdrop-blur-[6px]"
+        onClick={() => {
+          setOpen(false);
+          setQuery("");
+        }}
+        aria-hidden
+      />
+      <div
+        className="pointer-events-none absolute inset-y-0 right-0 z-10 grid place-items-center p-4"
+        style={{ left: "var(--ritual-sidebar-current-width, 0px)" }}
+      >
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Search"
+          className={cn(
+            "pointer-events-auto flex h-[min(420px,calc(100dvh-48px))] w-full max-w-[640px] flex-col overflow-hidden",
+            "rounded-2xl border border-[rgba(39,37,30,0.08)] text-[#111111]",
+            "bg-[rgba(255,255,255,0.55)] shadow-[0_24px_64px_rgba(28,25,18,0.16),0_4px_16px_rgba(28,25,18,0.06)]",
+            "backdrop-blur-2xl backdrop-saturate-150",
+            "supports-[backdrop-filter]:bg-[rgba(255,255,255,0.48)]",
+          )}
         >
-          <DialogPrimitive.Title className="sr-only">Search</DialogPrimitive.Title>
-          <div className="flex h-[420px] flex-col overflow-hidden rounded-sm border border-[rgba(255,255,255,0.58)] bg-[linear-gradient(180deg,rgba(255,255,255,0.50),rgba(246,244,240,0.42))] shadow-[0_24px_56px_rgba(15,23,42,0.16),0_6px_20px_rgba(15,23,42,0.08),inset_0_1px_0_rgba(255,255,255,0.32)] backdrop-blur-[22px] supports-[backdrop-filter]:bg-[rgba(248,248,246,0.42)]">
-            {/* Search Input */}
-            <div className="flex flex-shrink-0 items-center gap-2 border-b border-[rgba(39,37,30,0.08)] bg-[rgba(255,255,255,0.16)] px-4 py-3">
-              <input
-                ref={inputRef}
-                type="text"
-                placeholder="Type a command or search..."
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                className="flex-1 text-base border-0 focus:outline-none bg-transparent placeholder:text-gray-400"
-                autoFocus
-              />
-              {isLoading && <BrailleSpinner className="text-sm text-gray-400" />}
-            </div>
+          <div className="flex flex-shrink-0 items-center gap-2 border-b border-[rgba(39,37,30,0.06)] px-4 py-3">
+            <input
+              ref={inputRef}
+              type="text"
+              placeholder="Type a command or search..."
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              className="flex-1 border-0 bg-transparent text-[15px] font-normal tracking-[-0.01em] text-[#27251E] outline-none placeholder:text-[rgba(39,37,30,0.38)] focus:outline-none"
+              autoFocus
+            />
+            {isLoading && <BrailleSpinner className="text-sm text-[rgba(39,37,30,0.4)]" />}
+          </div>
 
-          {/* Results */}
-          <div className="min-h-0 flex-1 overflow-y-auto bg-[rgba(255,255,255,0.10)]">
-            <Command className="rtlp-cmd" shouldFilter={false}>
-              <Command.List className="px-1 py-2 max-h-full overflow-y-auto">
-                
-                {/* No results */}
-                {!hasResults && query && !isLoading && (
-                  <div className="py-12 text-center">
-                    <p className="text-sm text-gray-500">No results found for &quot;{query}&quot;</p>
-                    <p className="text-xs text-gray-400 mt-1">Try a different search term</p>
-                  </div>
-                )}
+          <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
+            {!hasResults && query && !isLoading && (
+              <div className="py-12 text-center">
+                <p className="text-[13.5px] text-[rgba(39,37,30,0.55)]">No results found for &quot;{query}&quot;</p>
+                <p className="mt-1 text-[12.5px] text-[rgba(39,37,30,0.4)]">Try a different search term</p>
+              </div>
+            )}
 
-                {/* Quick Actions */}
-                {paletteActions.length > 0 && (
-                  <>
-                    <div className="px-3 py-1.5 text-xs font-medium text-gray-400">
-                      {debouncedQuery.trim() ? "Best Matches" : "Quick Actions"}
-                    </div>
-                    {paletteActions.map((action) => (
-                      <Command.Item
-                        key={action.id}
-                        value={action.name}
-                        onSelect={() => handleActionSelect(action)}
-                        onClick={() => handleActionSelect(action)}
-                        className="flex cursor-pointer items-center gap-3 px-3 py-2 rounded-sm hover:bg-[#f0f0ef] data-[selected=true]:bg-[#f0f0ef]"
-                      >
-                        <span className="text-gray-700 w-4 h-4 flex items-center justify-center">
-                          {getActionIcon(action.icon)}
-                        </span>
-                        <span className="text-sm text-gray-700">{action.name}</span>
-                      </Command.Item>
-                    ))}
-                  </>
-                )}
+            {paletteActions.length > 0 && (
+              <div>
+                <div className="px-2.5 pb-1 pt-1.5 text-[11px] font-medium tracking-[0.01em] text-[rgba(39,37,30,0.4)]">
+                  {debouncedQuery.trim() ? "Best Matches" : "Quick Actions"}
+                </div>
+                {paletteActions.map((action) => {
+                  const index = nextOptionIndex();
+                  const active = index === activeIndex;
+                  return (
+                    <button
+                      key={`action:${action.id}:${action.path || action.name}`}
+                      type="button"
+                      data-active={active ? "true" : undefined}
+                      onMouseEnter={() => setActiveIndex(index)}
+                      onClick={() => handleActionSelect(action)}
+                      className={paletteRowClass}
+                    >
+                      <span className="flex h-4 w-4 items-center justify-center text-[#27251E]">
+                        {getActionIcon(action.icon)}
+                      </span>
+                      <span className="text-[13.5px] font-normal tracking-[-0.01em] text-[#27251E]">
+                        {action.name}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
 
-                {/* Habits */}
-                {results?.habits && results.habits.found > 0 && (
-                  <>
-                    <div className="px-3 py-1.5 pt-3 text-xs font-medium text-gray-400 flex items-center justify-between">
-                      <span>Habits</span>
-                      <span className="text-gray-300 text-xs">{results.habits.found} found</span>
-                    </div>
-                    {results.habits.hits.slice(0, 5).map((habit) => (
-                      <Command.Item
-                        key={habit.id}
-                        value={`habit-${habit.name}`}
-                        onSelect={() => handleHabitSelect(habit)}
-                        onClick={() => handleHabitSelect(habit)}
-                        className="flex cursor-pointer items-center gap-3 px-3 py-2 rounded-sm hover:bg-[#f0f0ef] data-[selected=true]:bg-[#f0f0ef]"
-                      >
-                        <span className="w-4 h-4 flex items-center justify-center">
-                          <HabitIcon iconName={habit.icon} className="w-4 h-4" />
-                        </span>
-                        <div className="flex-1 min-w-0">
-                          <span className="text-sm text-gray-700">{habit.name}</span>
-                          {habit.category && (
-                            <span className="text-xs text-gray-400 ml-2">{habit.category}</span>
-                          )}
-                        </div>
-                        {habit.unit_type && (
-                          <span className="text-xs text-gray-400">{habit.unit_type}</span>
+            {entityProtocolEnabled() && results?.entities && results.entities.length > 0 && (
+              <div>
+                <div className="flex items-center justify-between px-2.5 pb-1 pt-3 text-[11px] font-medium tracking-[0.01em] text-[rgba(39,37,30,0.4)]">
+                  <span>Objects</span>
+                  <span className="text-[11px] text-[rgba(39,37,30,0.3)]">{results.entities.length} found</span>
+                </div>
+                {results.entities.slice(0, 12).map((summary) => {
+                  const index = nextOptionIndex();
+                  const active = index === activeIndex;
+                  return (
+                    <button
+                      key={`${summary.ref.type}:${summary.ref.id}`}
+                      type="button"
+                      data-active={active ? "true" : undefined}
+                      onMouseEnter={() => setActiveIndex(index)}
+                      onClick={() => handleEntitySelect(summary)}
+                      className={paletteRowClass}
+                    >
+                      <span className="flex h-4 w-4 items-center justify-center text-[#27251E]">
+                        <Search className="h-4 w-4" />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <span className="text-sm text-[#27251E]">{summary.title}</span>
+                        {summary.subtitle ? (
+                          <span className="ml-2 text-xs text-[rgba(39,37,30,0.4)]">{summary.subtitle}</span>
+                        ) : null}
+                      </div>
+                      <span className="text-xs text-[rgba(39,37,30,0.4)]">{ENTITY_TYPE_LABELS[summary.ref.type]}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {(!entityProtocolEnabled() || !results?.entities?.length) && results?.habits && results.habits.found > 0 && (
+              <div>
+                <div className="flex items-center justify-between px-2.5 pb-1 pt-3 text-[11px] font-medium tracking-[0.01em] text-[rgba(39,37,30,0.4)]">
+                  <span>Habits</span>
+                  <span className="text-[11px] text-[rgba(39,37,30,0.3)]">{results.habits.found} found</span>
+                </div>
+                {results.habits.hits.slice(0, 5).map((habit) => {
+                  const index = nextOptionIndex();
+                  const active = index === activeIndex;
+                  return (
+                    <button
+                      key={habit.id}
+                      type="button"
+                      data-active={active ? "true" : undefined}
+                      onMouseEnter={() => setActiveIndex(index)}
+                      onClick={() => handleHabitSelect(habit)}
+                      className={paletteRowClass}
+                    >
+                      <span className="flex h-4 w-4 items-center justify-center">
+                        <HabitIcon iconName={habit.icon} className="w-4 h-4" />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <span className="text-sm text-[#27251E]">{habit.name}</span>
+                        {habit.category && (
+                          <span className="ml-2 text-xs text-[rgba(39,37,30,0.4)]">{habit.category}</span>
                         )}
-                      </Command.Item>
-                    ))}
-                  </>
-                )}
+                      </div>
+                      {habit.unit_type && (
+                        <span className="text-xs text-[rgba(39,37,30,0.4)]">{habit.unit_type}</span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
 
-                {/* Recent Logs */}
-                {results?.logs && results.logs.found > 0 && (
-                  <>
-                    <div className="px-3 py-1.5 pt-3 text-xs font-medium text-gray-400 flex items-center justify-between">
-                      <span>Recent Logs</span>
-                      <span className="text-gray-300 text-xs">{results.logs.found} found</span>
-                    </div>
-                    {results.logs.hits.slice(0, 5).map((log) => (
-                      <Command.Item
-                        key={log.id}
-                        value={`log-${log.habit_name}-${log.date}`}
-                        onSelect={() => handleLogSelect(log)}
-                        onClick={() => handleLogSelect(log)}
-                        className="flex cursor-pointer items-center gap-3 px-3 py-2 rounded-sm hover:bg-[#f0f0ef] data-[selected=true]:bg-[#f0f0ef]"
-                      >
-                        <span className="text-gray-700 w-4 h-4 flex items-center justify-center">
-                          <Clock className="h-4 w-4" />
-                        </span>
-                        <div className="flex-1 min-w-0 flex items-center gap-2">
-                          <span className="text-sm text-gray-700 truncate">{log.habit_name}</span>
-                          <span className="text-xs text-gray-400">{formatDate(log.date)}</span>
-                          {log.amount != null && (
-                            <span className="text-xs text-gray-400">{log.amount} {log.unit_type || ''}</span>
-                          )}
-                        </div>
-                        {log.notes && (
-                          <span className="hidden max-w-[180px] truncate text-xs text-gray-400 md:block">
-                            {log.notes}
+            {(!entityProtocolEnabled() || !results?.entities?.length) && results?.logs && results.logs.found > 0 && (
+              <div>
+                <div className="flex items-center justify-between px-2.5 pb-1 pt-3 text-[11px] font-medium tracking-[0.01em] text-[rgba(39,37,30,0.4)]">
+                  <span>Recent Logs</span>
+                  <span className="text-[11px] text-[rgba(39,37,30,0.3)]">{results.logs.found} found</span>
+                </div>
+                {results.logs.hits.slice(0, 5).map((log) => {
+                  const index = nextOptionIndex();
+                  const active = index === activeIndex;
+                  return (
+                    <button
+                      key={log.id}
+                      type="button"
+                      data-active={active ? "true" : undefined}
+                      onMouseEnter={() => setActiveIndex(index)}
+                      onClick={() => handleLogSelect(log)}
+                      className={paletteRowClass}
+                    >
+                      <span className="flex h-4 w-4 items-center justify-center text-[#27251E]">
+                        <Clock className="h-4 w-4" />
+                      </span>
+                      <div className="flex min-w-0 flex-1 items-center gap-2">
+                        <span className="truncate text-sm text-[#27251E]">{log.habit_name}</span>
+                        <span className="text-xs text-[rgba(39,37,30,0.4)]">{formatDate(log.date)}</span>
+                        {log.amount != null && (
+                          <span className="text-xs text-[rgba(39,37,30,0.4)]">
+                            {log.amount} {log.unit_type || ""}
                           </span>
                         )}
-                      </Command.Item>
-                    ))}
-                  </>
-                )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
 
-                {/* AI Conversations */}
-                {results?.conversations && results.conversations.found > 0 && (
-                  <>
-                    <div className="px-3 py-1.5 pt-3 text-xs font-medium text-gray-400 flex items-center justify-between">
-                      <span>AI Conversations</span>
-                      <span className="text-gray-300 text-xs">{results.conversations.found} found</span>
-                    </div>
-                    {results.conversations.hits.slice(0, 3).map((conv: any) => (
-                      <Command.Item
-                        key={conv.id}
-                        value={`conv-${conv.id}`}
-                        onSelect={() => handleConversationSelect(conv)}
-                        onClick={() => handleConversationSelect(conv)}
-                        className="flex cursor-pointer items-center gap-3 px-3 py-2 rounded-sm hover:bg-[#f0f0ef] data-[selected=true]:bg-[#f0f0ef]"
-                      >
-                        <span className="text-gray-700 w-4 h-4 flex items-center justify-center">
-                          <MessageSquare className="h-4 w-4" />
-                        </span>
-                        <span className="text-sm text-gray-700 truncate flex-1">
-                          {conv.content_preview || conv.content?.slice(0, 60)}...
-                        </span>
-                      </Command.Item>
-                    ))}
-                  </>
-                )}
-
-                {/* Artifacts */}
-                {results?.artifacts && results.artifacts.found > 0 && (
-                  <>
-                    <div className="px-3 py-1.5 pt-3 text-xs font-medium text-gray-400 flex items-center justify-between">
-                      <span>Artifacts</span>
-                      <span className="text-gray-300 text-xs">{results.artifacts.found} found</span>
-                    </div>
-                    {results.artifacts.hits.slice(0, 4).map((artifact: any) => (
-                      <Command.Item
-                        key={artifact.id}
-                        value={`artifact-${artifact.id}`}
-                        onSelect={() => handleArtifactSelect(artifact)}
-                        onClick={() => handleArtifactSelect(artifact)}
-                        className="flex cursor-pointer items-center gap-3 px-3 py-2 rounded-sm hover:bg-[#f0f0ef] data-[selected=true]:bg-[#f0f0ef]"
-                      >
-                        <span className="text-gray-700 w-4 h-4 flex items-center justify-center">
-                          <FileText className="h-4 w-4" />
-                        </span>
-                        <div className="flex-1 min-w-0">
-                          <span className="text-sm text-gray-700 truncate block">{artifact.title}</span>
-                          <span className="text-xs text-gray-400 truncate block">{artifact.kind?.replace?.(/_/g, ' ') || 'artifact'}</span>
-                        </div>
-                      </Command.Item>
-                    ))}
-                  </>
-                )}
-
-                {/* Workflows */}
-                {results?.workflows && results.workflows.found > 0 && (
-                  <>
-                    <div className="px-3 py-1.5 pt-3 text-xs font-medium text-gray-400 flex items-center justify-between">
-                      <span>Routines & Ambient</span>
-                      <span className="text-gray-300 text-xs">{results.workflows.found} found</span>
-                    </div>
-                    {results.workflows.hits.slice(0, 4).map((workflow: any) => (
-                      <Command.Item
-                        key={workflow.id}
-                        value={`workflow-${workflow.id}`}
-                        onSelect={() => handleWorkflowSelect(workflow)}
-                        onClick={() => handleWorkflowSelect(workflow)}
-                        className="flex cursor-pointer items-center gap-3 px-3 py-2 rounded-sm hover:bg-[#f0f0ef] data-[selected=true]:bg-[#f0f0ef]"
-                      >
-                        <span className="text-gray-700 w-4 h-4 flex items-center justify-center">
-                          <Sparkles className="h-4 w-4" />
-                        </span>
-                        <div className="flex-1 min-w-0">
-                          <span className="text-sm text-gray-700 truncate block">{workflow.name}</span>
-                          <span className="text-xs text-gray-400 truncate block">
-                            {(workflow.definition_family || workflow.kind || 'workflow').replace?.(/_/g, ' ')}
-                          </span>
-                        </div>
-                      </Command.Item>
-                    ))}
-                  </>
-                )}
-
-                {/* Facts */}
-                {results?.facts && results.facts.found > 0 && (
-                  <>
-                    <div className="px-3 py-1.5 pt-3 text-xs font-medium text-gray-400 flex items-center justify-between">
-                      <span>Memory & Rules</span>
-                      <span className="text-gray-300 text-xs">{results.facts.found} found</span>
-                    </div>
-                    {results.facts.hits.slice(0, 4).map((fact: any) => (
-                      <Command.Item
-                        key={fact.id}
-                        value={`fact-${fact.id}`}
-                        onSelect={() => handleFactSelect(fact)}
-                        onClick={() => handleFactSelect(fact)}
-                        className="flex cursor-pointer items-center gap-3 px-3 py-2 rounded-sm hover:bg-[#f0f0ef] data-[selected=true]:bg-[#f0f0ef]"
-                      >
-                        <span className="text-gray-700 w-4 h-4 flex items-center justify-center">
-                          <ShieldCheck className="h-4 w-4" />
-                        </span>
-                        <div className="flex-1 min-w-0">
-                          <span className="text-sm text-gray-700 truncate block">{fact.predicate || fact.category}</span>
-                          <span className="text-xs text-gray-400 truncate block">{fact.category || 'fact'}</span>
-                        </div>
-                      </Command.Item>
-                    ))}
-                  </>
-                )}
-
-              </Command.List>
-            </Command>
+            {(!entityProtocolEnabled() || !results?.entities?.length) && results?.conversations && results.conversations.found > 0 && (
+              <div>
+                <div className="flex items-center justify-between px-2.5 pb-1 pt-3 text-[11px] font-medium tracking-[0.01em] text-[rgba(39,37,30,0.4)]">
+                  <span>AI Conversations</span>
+                  <span className="text-[11px] text-[rgba(39,37,30,0.3)]">{results.conversations.found} found</span>
+                </div>
+                {results.conversations.hits.slice(0, 3).map((conv: any) => {
+                  const index = nextOptionIndex();
+                  const active = index === activeIndex;
+                  return (
+                    <button
+                      key={conv.id}
+                      type="button"
+                      data-active={active ? "true" : undefined}
+                      onMouseEnter={() => setActiveIndex(index)}
+                      onClick={() => handleConversationSelect(conv)}
+                      className={paletteRowClass}
+                    >
+                      <span className="flex h-4 w-4 items-center justify-center text-[#27251E]">
+                        <MessageSquare className="h-4 w-4" />
+                      </span>
+                      <span className="flex-1 truncate text-sm text-[#27251E]">
+                        {conv.content_preview || conv.content?.slice(0, 60)}...
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
-          
-          {/* Footer */}
-          <div className="flex flex-shrink-0 items-center justify-between border-t border-[rgba(39,37,30,0.08)] bg-[rgba(255,255,255,0.14)] px-3 py-2 text-xs text-gray-400">
-            {/* Logo on left */}
-            <div className="flex items-center gap-2">
-              <img src="/images/eclipse.svg" alt="Ritual" className="h-4 w-4 opacity-70" />
-            </div>
-            
-            {/* Keyboard shortcuts on right */}
-            <div className="flex items-center gap-2">
-              <kbd className="rounded-sm border border-[rgba(255,255,255,0.54)] bg-[rgba(255,255,255,0.20)] px-1.5 py-0.5 text-[11px] shadow-[inset_0_1px_0_rgba(255,255,255,0.22)]">↑</kbd>
-              <kbd className="rounded-sm border border-[rgba(255,255,255,0.54)] bg-[rgba(255,255,255,0.20)] px-1.5 py-0.5 text-[11px] shadow-[inset_0_1px_0_rgba(255,255,255,0.22)]">↓</kbd>
-              <kbd className="rounded-sm border border-[rgba(255,255,255,0.54)] bg-[rgba(255,255,255,0.20)] px-1.5 py-0.5 text-[11px] shadow-[inset_0_1px_0_rgba(255,255,255,0.22)]">↵</kbd>
+
+          <div className="flex flex-shrink-0 items-center justify-between border-t border-[rgba(39,37,30,0.06)] px-3 py-2 text-[12px] text-[rgba(39,37,30,0.4)]">
+            <img src="/images/eclipse.svg" alt="Ritual" className="h-4 w-4 opacity-70" />
+            <div className="flex items-center gap-1.5">
+              <kbd className="rounded-md border border-[rgba(39,37,30,0.1)] bg-[rgba(255,255,255,0.45)] px-1.5 py-0.5 text-[11px] text-[rgba(39,37,30,0.55)]">↑</kbd>
+              <kbd className="rounded-md border border-[rgba(39,37,30,0.1)] bg-[rgba(255,255,255,0.45)] px-1.5 py-0.5 text-[11px] text-[rgba(39,37,30,0.55)]">↓</kbd>
+              <kbd className="rounded-md border border-[rgba(39,37,30,0.1)] bg-[rgba(255,255,255,0.45)] px-1.5 py-0.5 text-[11px] text-[rgba(39,37,30,0.55)]">↵</kbd>
             </div>
           </div>
-          </div>
-        </DialogPrimitive.Content>
-      </DialogPrimitive.Portal>
-    </DialogPrimitive.Root>
+        </div>
+      </div>
+    </div>
   );
-}
 
-// Also export as HabitSelector for backward compatibility
-export { CommandPalette as HabitSelector };
+  return createPortal(modal, document.body);
+}

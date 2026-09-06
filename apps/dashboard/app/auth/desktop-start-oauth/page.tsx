@@ -19,8 +19,16 @@ function isValidStrategy(value: string | null): value is DesktopOAuthStrategy {
   return value === 'oauth_google' || value === 'oauth_apple';
 }
 
-function buildDesktopOAuthBridgeUrl(): string {
-  return new URL('/auth/desktop-oauth-bridge', window.location.origin).toString();
+function buildDesktopOAuthBridgeUrl(searchParams: URLSearchParams): string {
+  const url = new URL('/auth/desktop-oauth-bridge', window.location.origin);
+  for (const key of [
+    'handoff_id', 'nonce_challenge', 'channel', 'protocol', 'expires_at_ms', 'app_version', 'build_sha',
+    'bundle_id', 'callback_scheme', 'target',
+  ]) {
+    const value = searchParams.get(key);
+    if (value) url.searchParams.set(key, value);
+  }
+  return url.toString();
 }
 
 function DesktopStartOAuthInner() {
@@ -33,6 +41,10 @@ function DesktopStartOAuthInner() {
 
   const mode = searchParams.get('mode');
   const strategy = searchParams.get('strategy');
+  const bridgeUrl = useMemo(
+    () => buildDesktopOAuthBridgeUrl(new URLSearchParams(searchParams.toString())),
+    [searchParams],
+  );
 
   const parsed = useMemo(() => {
     if (!isValidMode(mode)) {
@@ -57,8 +69,8 @@ function DesktopStartOAuthInner() {
 
     const redirectParams = {
       strategy: parsed.strategy,
-      redirectUrl: '/auth/desktop-oauth-bridge',
-      redirectUrlComplete: '/auth/desktop-oauth-bridge',
+      redirectUrl: bridgeUrl,
+      redirectUrlComplete: bridgeUrl,
       oidcPrompt: parsed.strategy === 'oauth_google' ? 'select_account' : undefined,
     } as const;
 
@@ -78,7 +90,7 @@ function DesktopStartOAuthInner() {
         }
 
         if (user) {
-          window.location.replace(buildDesktopOAuthBridgeUrl());
+          window.location.replace(bridgeUrl);
           return;
         }
 
@@ -104,12 +116,12 @@ function DesktopStartOAuthInner() {
     };
 
     void run();
-  }, [parsed, signInLoaded, signIn, signUpLoaded, signUp, userLoaded, user]);
+  }, [bridgeUrl, parsed, signInLoaded, signIn, signUpLoaded, signUp, userLoaded, user]);
 
   if ('error' in parsed || error) {
     const message = error ?? parsed.error;
     return (
-      <main className="flex min-h-screen items-center justify-center bg-white px-6">
+      <main className="ritual-onboarding-font flex min-h-screen items-center justify-center bg-[#fcfcfa] px-6">
         <div className="w-full max-w-lg rounded-2xl border border-red-200 bg-red-50 p-8 text-[#1d1a16] shadow-sm">
           <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-red-700">
             Ritual Desktop Auth
@@ -141,7 +153,7 @@ function DesktopStartOAuthInner() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-white px-6">
+    <main className="ritual-onboarding-font flex min-h-screen items-center justify-center bg-[#fcfcfa] px-6">
       <div className="w-full max-w-lg rounded-2xl border border-gray-200 bg-white p-8 text-center shadow-sm">
         <BrailleSpinner className="mx-auto text-2xl text-gray-900" />
         <h1 className="mt-6 text-2xl font-medium text-gray-900">
@@ -159,7 +171,7 @@ export default function DesktopStartOAuthPage() {
   return (
     <Suspense
       fallback={
-        <main className="flex min-h-screen items-center justify-center bg-white px-6">
+        <main className="ritual-onboarding-font flex min-h-screen items-center justify-center bg-[#fcfcfa] px-6">
           <div className="text-center text-gray-900">
             <BrailleSpinner className="mx-auto text-2xl text-gray-900" />
             <p className="mt-4 text-sm text-gray-600">Preparing desktop sign-in…</p>

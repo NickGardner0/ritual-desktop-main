@@ -55,6 +55,8 @@
 		B714240F19604E247ECA31F8 /* HeartRateBiometrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7684EC5BD030E45458E6EC8B /* HeartRateBiometrics.swift */; };
 		B8BB567982B89441F20CC495 /* BiometricsLocalStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6260A7C6150515A1745EC60B /* BiometricsLocalStore.swift */; };
 		B94A8CE3B1FF6F1292423070 /* MarkdownExporterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70003735978CA53E78A71BF3 /* MarkdownExporterTests.swift */; };
+		E079D2660ECE3E6BE82B5A77 /* HealthMetricDescriptorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03E3AB81A1F6AF0962CD3450 /* HealthMetricDescriptorTests.swift */; };
+		FEB547F1908E8A584E345B47 /* IngestEnvelopeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E1508BEA87CE2B4D1A6408C /* IngestEnvelopeTests.swift */; };
 		BF0DDE163AED7BB73EBFF00A /* LocalExportHistoryStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A32FE695D7B5296906618A77 /* LocalExportHistoryStoreTests.swift */; };
 		C84C3305B73C7EE1D49D7D87 /* RitualAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55A7812D68BCCD6D8AE808B4 /* RitualAPIClient.swift */; };
 		C89D361628116D80350D651F /* BackgroundSyncManagerV2.swift in Sources */ = {isa = PBXBuildFile; fileRef = B45947887D2B1447F7269E0F /* BackgroundSyncManagerV2.swift */; };
@@ -62,6 +64,7 @@
 		CB54341A408CA8A2F5752031 /* RitualScreenTimeShared.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C234661BB134853DCBE541B3 /* RitualScreenTimeShared.framework */; };
 		CD5EA7E5CFD7D13D0D091B83 /* HabitMappingListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD3DC6E3DBC4DEA6505746B2 /* HabitMappingListView.swift */; };
 		CF2ED8AB67DB6395A2A7BE95 /* HealthKitManagerV2.swift in Sources */ = {isa = PBXBuildFile; fileRef = F243BA15F799B3B6E8786BF4 /* HealthKitManagerV2.swift */; };
+		061E6E6A4F484BAEE855569B /* HealthMetricDescriptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C55DB7359616EAFB17F82970 /* HealthMetricDescriptor.swift */; };
 		D2084AF2C75A38D2EA2DB475 /* BLEPermissionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A70CC74C0F075A70FF36FED1 /* BLEPermissionState.swift */; };
 		D73B96625C7DD704123583DA /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 92D8EBAAC3C5E98D045AEB04 /* PrivacyInfo.xcprivacy */; };
 		DA89D099F0EC683E42DC82AE /* LocationPing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CE3448438C30CCA1D1DCF70 /* LocationPing.swift */; };
@@ -166,6 +169,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		03E3AB81A1F6AF0962CD3450 /* HealthMetricDescriptorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthMetricDescriptorTests.swift; sourceTree = "<group>"; };
 		171C169FA35F85FC7ADA04D9 /* BLEHeartRateParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BLEHeartRateParser.swift; sourceTree = "<group>"; };
 		1741C77C405F908BA6C2BCC3 /* StatusView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusView.swift; sourceTree = "<group>"; };
 		184AF847225632991CF82F23 /* LocationPingOutbox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationPingOutbox.swift; sourceTree = "<group>"; };
@@ -205,6 +209,7 @@
 		889E6C394079DDFA9201011C /* BiometricsSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BiometricsSyncService.swift; sourceTree = "<group>"; };
 		8A94C38D6A9F09F7FB7C4498 /* AppConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConfig.swift; sourceTree = "<group>"; };
 		8C248FC038D89F31B8834478 /* FocusSelectionReport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusSelectionReport.swift; sourceTree = "<group>"; };
+		8E1508BEA87CE2B4D1A6408C /* IngestEnvelopeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IngestEnvelopeTests.swift; sourceTree = "<group>"; };
 		8F570F54536DD9BF51461F72 /* SourceStatusCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceStatusCard.swift; sourceTree = "<group>"; };
 		900A21C0CC5F0F56A663D35C /* TuistBundle+RitualCompanion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TuistBundle+RitualCompanion.swift"; sourceTree = "<group>"; };
 		92D8EBAAC3C5E98D045AEB04 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
@@ -229,6 +234,7 @@
 		BF91F678261C8F0BB0C07F17 /* RitualCompanion.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = RitualCompanion.entitlements; sourceTree = "<group>"; };
 		C234661BB134853DCBE541B3 /* RitualScreenTimeShared.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = RitualScreenTimeShared.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		C52426DADBCAA588D41D9303 /* LocalExportManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalExportManagerTests.swift; sourceTree = "<group>"; };
+		C55DB7359616EAFB17F82970 /* HealthMetricDescriptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthMetricDescriptor.swift; sourceTree = "<group>"; };
 		D415312C15325BB2CF548937 /* HabitMappingResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HabitMappingResolverTests.swift; sourceTree = "<group>"; };
 		DE1AF4769467834D6C61A6DD /* HabitMapping.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HabitMapping.swift; sourceTree = "<group>"; };
 		DF7B43980E3E47C32AD8CAE3 /* ScreenTimeManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenTimeManager.swift; sourceTree = "<group>"; };
@@ -462,6 +468,8 @@
 				2C56C74B7E232D6E54F735A7 /* FilenameTemplateTests.swift */,
 				D415312C15325BB2CF548937 /* HabitMappingResolverTests.swift */,
 				96367BEC75CDC9B16DDDB8AF /* HabitMappingStoreTests.swift */,
+				03E3AB81A1F6AF0962CD3450 /* HealthMetricDescriptorTests.swift */,
+				8E1508BEA87CE2B4D1A6408C /* IngestEnvelopeTests.swift */,
 				A32FE695D7B5296906618A77 /* LocalExportHistoryStoreTests.swift */,
 				C52426DADBCAA588D41D9303 /* LocalExportManagerTests.swift */,
 				70003735978CA53E78A71BF3 /* MarkdownExporterTests.swift */,
@@ -482,6 +490,7 @@
 				B45947887D2B1447F7269E0F /* BackgroundSyncManagerV2.swift */,
 				3A3C8403B70312EF3D7C5815 /* ExportDestinationStore.swift */,
 				F243BA15F799B3B6E8786BF4 /* HealthKitManagerV2.swift */,
+				C55DB7359616EAFB17F82970 /* HealthMetricDescriptor.swift */,
 				7A9FDEFC8AB90A51E7A3B6EA /* LocalExportHistoryStore.swift */,
 				65584B0FB0BEA8C9B4F5D591 /* LocalExportManager.swift */,
 				BF0787A5A29C0A23D60E1B9D /* LocationManager.swift */,
@@ -774,6 +783,8 @@
 				BF0DDE163AED7BB73EBFF00A /* LocalExportHistoryStoreTests.swift in Sources */,
 				2F8FE9690DEA7AE8CDFB881F /* LocalExportManagerTests.swift in Sources */,
 				B94A8CE3B1FF6F1292423070 /* MarkdownExporterTests.swift in Sources */,
+				E079D2660ECE3E6BE82B5A77 /* HealthMetricDescriptorTests.swift in Sources */,
+				FEB547F1908E8A584E345B47 /* IngestEnvelopeTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -816,6 +827,7 @@
 				9B7507788651710947EFEAEC /* HabitMappingResolver.swift in Sources */,
 				0BBAA91186A691B5F90F9B9A /* HabitMappingStore.swift in Sources */,
 				CF2ED8AB67DB6395A2A7BE95 /* HealthKitManagerV2.swift in Sources */,
+				061E6E6A4F484BAEE855569B /* HealthMetricDescriptor.swift in Sources */,
 				EC97CEDF62A8D48DE115A431 /* LocalExportHistoryStore.swift in Sources */,
 				210BD4D8B9211661A43D2AFA /* LocalExportManager.swift in Sources */,
 				E145EA8DEB6EB7EE25FD3DDB /* LocationManager.swift in Sources */,

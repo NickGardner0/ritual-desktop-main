@@ -6,19 +6,7 @@
  * generation, and LLM-powered narrative synthesis.
  */
 
-import OpenAI from 'openai';
-
-// ---------------------------------------------------------------------------
-// Local OpenAI helper (mirrors the one in orchestrator.ts)
-// ---------------------------------------------------------------------------
-
-function getOpenAIClient(): OpenAI {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    throw new Error('OPENAI_API_KEY is not configured');
-  }
-  return new OpenAI({ apiKey });
-}
+import { collectModelEngineResponse, defaultModelEngine } from '../model-engine/index.js';
 
 // ---------------------------------------------------------------------------
 // Exported interfaces
@@ -453,10 +441,10 @@ export async function generateWeeklyOverviewNarrative(
       : 'this week';
 
   try {
-    const response = await getOpenAIClient().chat.completions.create({
+    const response = await collectModelEngineResponse(defaultModelEngine, {
       model: 'gpt-4o',
       temperature: 0.3,
-      max_tokens: 1200,
+      maxTokens: 1200,
       messages: [
         {
           role: 'system',
@@ -469,7 +457,7 @@ export async function generateWeeklyOverviewNarrative(
       ],
     });
 
-    const content = response.choices[0]?.message?.content?.trim();
+    const content = response.content?.trim();
     return content || fallback;
   } catch (error) {
     console.error('❌ generateWeeklyOverviewNarrative error:', error);
@@ -496,11 +484,10 @@ export async function* streamWeeklyOverviewNarrative(
       : 'this week';
 
   try {
-    const stream = await getOpenAIClient().chat.completions.create({
+    const stream = defaultModelEngine.stream({
       model: 'gpt-4o',
       temperature: 0.3,
-      max_tokens: 1200,
-      stream: true,
+      maxTokens: 1200,
       messages: [
         {
           role: 'system',
@@ -514,11 +501,10 @@ export async function* streamWeeklyOverviewNarrative(
     });
 
     let hasContent = false;
-    for await (const chunk of stream) {
-      const delta = chunk.choices[0]?.delta?.content;
-      if (delta) {
+    for await (const event of stream) {
+      if (event.type === 'text_delta' && event.text) {
         hasContent = true;
-        yield delta;
+        yield event.text;
       }
     }
 

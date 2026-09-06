@@ -71,7 +71,7 @@ const sections = [
 
 export default function DataRetentionPage() {
   return (
-    <main className="min-h-screen bg-white text-gray-900" style={{ fontFamily: "var(--ritual-selected-font-family)" }}>
+    <main className="min-h-screen bg-white glass-opaque-screen text-gray-900" style={{ fontFamily: "var(--ritual-selected-font-family)" }}>
       <div className="mx-auto max-w-4xl px-6 py-16 sm:px-8 sm:py-20">
         <div className="mb-10 flex items-center justify-between gap-4">
           <Link

@@ -1,14 +1,48 @@
+@import "@ritual/ui/globals.css";
+
 /* Tailwind CSS directives */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-@font-face {
-  font-family: 'Material Symbols Rounded';
-  src: url('/fonts/material-symbols/MaterialSymbolsRounded-400.ttf') format('truetype');
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
+/* Window-level task composer card.
+   Specificity must beat `div[data-tauri-drag-region] { border: none; box-shadow: none }`,
+   which matches even `data-tauri-drag-region="false"` in the desktop chrome reset. */
+div.task-composer-dialog {
+  border: 1px solid color-mix(in srgb, var(--text-primary) 18%, transparent) !important;
+  border-radius: 14px !important;
+  background: var(--surface-raised, #ffffff) !important;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.12) !important;
+  overflow: visible !important;
+}
+
+html[data-voice-hud-window="1"],
+body[data-voice-hud-window="1"] {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent !important;
+}
+
+body[data-voice-hud-window="1"] {
+  margin: 0;
+}
+
+.voice-hud-keycap {
+  display: inline-flex;
+  height: 38px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: rgba(214, 214, 214, 0.92);
+  padding: 0 10px;
+  color: #252525;
+  font-size: 24px;
+  font-weight: 650;
+  line-height: 1;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.42),
+    0 1px 1px rgba(0, 0, 0, 0.04);
 }
 
 .material-symbols-rounded {
@@ -41,6 +75,90 @@
   transform: translateZ(0);
   backface-visibility: hidden;
   contain: layout paint;
+}
+
+.ritual-snappy-row {
+  transition: none !important;
+}
+
+html:has(.ritual-sidebar-shell[data-mode="expanded"]) {
+  --ritual-sidebar-current-width: 256px;
+}
+
+html:has(.ritual-sidebar-shell[data-mode="hover"]:hover),
+html:has(.ritual-sidebar-shell[data-mode="hover"]:focus-within),
+html:has(.ritual-sidebar-shell[data-mode="hover"][data-account-open="true"]) {
+  --ritual-sidebar-current-width: 256px;
+}
+
+html:has(.ritual-sidebar-shell[data-mode="compact"]) {
+  --ritual-sidebar-current-width: 76px;
+}
+
+.ritual-sidebar-shell[data-mode="hover"] {
+  width: 76px;
+}
+
+.ritual-sidebar-shell[data-mode="hover"]:hover,
+.ritual-sidebar-shell[data-mode="hover"]:focus-within,
+.ritual-sidebar-shell[data-mode="hover"][data-account-open="true"] {
+  width: 256px;
+}
+
+.ritual-habit-log-row {
+  transition: none;
+}
+
+.ritual-habit-log-row:hover:not([data-selected="true"]),
+.ritual-habit-log-row:hover:not([data-selected="true"]) [role="cell"],
+.ritual-habit-log-row:hover:not([data-selected="true"]) .ritual-habit-log-row-fill {
+  background-color: #f7f7f6;
+}
+
+.ritual-nav-row-surface,
+.sidebar-nav-row,
+table tbody tr,
+[role="menuitem"],
+[role="option"],
+[role="tab"],
+[role="row"] {
+  transition-duration: 0ms !important;
+}
+
+.ritual-snappy-row:hover,
+.ritual-snappy-row:focus-visible,
+.ritual-snappy-row[data-highlighted],
+.ritual-snappy-row[data-highlighted="true"] {
+  background-color: var(--ritual-snappy-row-hover, var(--row-hover, rgba(39, 37, 30, 0.055))) !important;
+}
+
+.ritual-snappy-row[data-active="true"],
+.ritual-snappy-row[data-selected="true"],
+.ritual-snappy-row[data-selected],
+.ritual-snappy-row[aria-selected="true"] {
+  background-color: var(--ritual-snappy-row-active, var(--row-active, rgba(39, 37, 30, 0.055))) !important;
+}
+
+/* Routines: subtle pulse for a currently running routine's status dot */
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes routine-running-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.45; transform: scale(0.85); }
+  }
+
+  .routine-running-dot {
+    animation: routine-running-pulse 1.6s ease-in-out infinite;
+  }
+}
+
+.ritual-snappy-row-menu {
+  --ritual-snappy-row-hover: #F3F3F3;
+  --ritual-snappy-row-active: #F3F3F3;
+}
+
+.ritual-snappy-row-muted-menu {
+  --ritual-snappy-row-hover: rgba(0, 0, 0, 0.04);
+  --ritual-snappy-row-active: rgba(0, 0, 0, 0.04);
 }
 
 /* Shimmer animation for "Thinking..." text */
@@ -90,26 +208,142 @@
   transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* Text shimmer animation - Midday inspired */
+/* Text shimmer animation adapted from Midday / ElevenLabs ShimmeringText. */
 @keyframes text-shimmer {
-  0% {
-    background-position: 100% 50%;
+  0%,
+  86% {
+    background-position: 100% center, center;
   }
+  99%,
   100% {
-    background-position: 0% 50%;
+    background-position: 0% center, center;
   }
 }
 
-.animate-text-shimmer {
-  background-image: linear-gradient(
-    90deg,
-    #1f2937 0%,
-    #1f2937 40%,
-    #6b7280 50%,
-    #1f2937 60%,
-    #1f2937 100%
-  );
-  animation: text-shimmer 2s ease-in-out infinite;
+/* Continuous sweep used by task completes and similar UI. */
+@keyframes ritual-shimmering-text-sweep {
+  0% {
+    background-position: 100% center, center;
+  }
+  100% {
+    background-position: 0% center, center;
+  }
+}
+
+.ritual-text-shimmer {
+  --ritual-text-shimmer-base: #000;
+  --ritual-text-shimmer-highlight: #a1a1aa;
+  --ritual-text-shimmer-spread: 96px;
+  display: inline-block;
+  color: transparent;
+  background-image:
+    linear-gradient(
+      90deg,
+      transparent calc(50% - var(--ritual-text-shimmer-spread)),
+      var(--ritual-text-shimmer-highlight),
+      transparent calc(50% + var(--ritual-text-shimmer-spread))
+    ),
+    linear-gradient(
+      var(--ritual-text-shimmer-base),
+      var(--ritual-text-shimmer-base)
+    );
+  background-repeat: no-repeat, no-repeat;
+  background-origin: border-box, padding-box;
+  background-size: 250% 100%, auto;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: text-shimmer 8s linear infinite;
+}
+
+.ritual-shimmering-text {
+  --shimmer-base: #7a7a7a;
+  --shimmer-highlight: #111111;
+  --shimmer-spread: 48px;
+  --shimmer-duration: 1.35s;
+  --shimmer-delay: 0s;
+  --shimmer-cycle: 1.7s;
+  --shimmer-iteration: infinite;
+  display: inline-block;
+  color: transparent;
+  background-image:
+    linear-gradient(
+      90deg,
+      transparent calc(50% - var(--shimmer-spread)),
+      var(--shimmer-highlight),
+      transparent calc(50% + var(--shimmer-spread))
+    ),
+    linear-gradient(var(--shimmer-base), var(--shimmer-base));
+  background-repeat: no-repeat, no-repeat;
+  background-origin: border-box, padding-box;
+  background-size: 250% 100%, auto;
+  background-position: 100% center, center;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation-name: ritual-shimmering-text-sweep;
+  animation-duration: var(--shimmer-duration);
+  animation-delay: var(--shimmer-delay);
+  animation-timing-function: linear;
+  animation-iteration-count: var(--shimmer-iteration);
+  animation-fill-mode: forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ritual-text-shimmer {
+    animation: none;
+    background-image: linear-gradient(
+      var(--ritual-text-shimmer-base),
+      var(--ritual-text-shimmer-base)
+    );
+  }
+
+  .ritual-shimmering-text {
+    animation: none;
+    background-image: linear-gradient(var(--shimmer-base), var(--shimmer-base));
+  }
+
+  .ritual-task-completing {
+    animation: none;
+  }
+
+  .ritual-task-complete-check {
+    animation: none;
+  }
+}
+
+@keyframes ritual-task-complete-exit {
+  to {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+}
+
+@keyframes ritual-task-complete-check {
+  from {
+    transform: scale(0.72);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.ritual-task-completing {
+  display: grid;
+  grid-template-rows: 1fr;
+  opacity: 1;
+  animation: ritual-task-complete-exit 160ms cubic-bezier(0.2, 0, 0, 1) 280ms forwards;
+}
+
+.ritual-task-completing > * {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.ritual-task-complete-check {
+  animation: ritual-task-complete-check 100ms cubic-bezier(0.2, 0, 0, 1);
 }
 
 /* Neutral text-selection styling for compact calendar block editor time fields */
@@ -130,23 +364,7 @@
 }
 
 @layer base {
-  /* FK Grotesk Neue font family */
-  @font-face {
-    font-family: 'FK Grotesk Neue';
-    src: url('/fonts/fk-grotesk-neue-font-family/FKGroteskNeueTrial-Thin-BF6576818c2a14c.otf') format('opentype');
-    font-weight: 100;
-    font-style: normal;
-    font-display: swap;
-  }
-
-  @font-face {
-    font-family: 'FK Grotesk Neue';
-    src: url('/fonts/fk-grotesk-neue-font-family/FKGroteskNeueTrial-Light-BF6576818c0f3e8.otf') format('opentype');
-    font-weight: 300;
-    font-style: normal;
-    font-display: swap;
-  }
-
+  /* FK Grotesk Neue — Regular and Medium only on first paint. Extra weights load after idle. */
   @font-face {
     font-family: 'FK Grotesk Neue';
     src: url('/fonts/fk-grotesk-neue-font-family/FKGroteskNeueTrial-Regular-BF6576818c3af74.otf') format('opentype');
@@ -163,26 +381,10 @@
     font-display: swap;
   }
 
-  @font-face {
-    font-family: 'FK Grotesk Neue';
-    src: url('/fonts/fk-grotesk-neue-font-family/FKGroteskNeueTrial-Black-BF6576818b4c472.otf') format('opentype');
-    font-weight: 700;
-    font-style: normal;
-    font-display: swap;
-  }
-
-  @font-face {
-    font-family: 'FK Grotesk Neue';
-    src: url('/fonts/fk-grotesk-neue-font-family/FKGroteskNeueTrial-Black-BF6576818b4c472.otf') format('opentype');
-    font-weight: 900;
-    font-style: normal;
-    font-display: swap;
-  }
-
-  /* GT Standard (M optical size, regular width) */
+  /* GT Standard (M optical size, regular width — Grilli Type trial) */
   @font-face {
     font-family: 'GT Standard';
-    src: url('/fonts/gt-standard/GT-Standard-Regular.woff2') format('woff2');
+    src: url('/fonts/gt-standard/GT-Standard-Regular-Trial.otf') format('opentype');
     font-weight: 400;
     font-style: normal;
     font-display: swap;
@@ -190,17 +392,51 @@
 
   @font-face {
     font-family: 'GT Standard';
-    src: url('/fonts/gt-standard/GT-Standard-Medium.woff2') format('woff2');
+    src: url('/fonts/gt-standard/GT-Standard-Medium-Trial.otf') format('opentype');
     font-weight: 500;
     font-style: normal;
     font-display: swap;
   }
 
+  /* GT America Standard (Regular / Medium — Grilli Type trial) */
   @font-face {
-    font-family: 'FK Grotesk Neue';
-    src: url('/fonts/fk-grotesk-neue-font-family/FKGroteskNeueTrial-Italic-BF6576818c041e2.otf') format('opentype');
+    font-family: 'GT America';
+    src:
+      url('/fonts/gt-america/GT-America-Standard-Regular-Trial.woff2') format('woff2'),
+      url('/fonts/gt-america/GT-America-Standard-Regular-Trial.otf') format('opentype');
     font-weight: 400;
-    font-style: italic;
+    font-style: normal;
+    font-display: swap;
+  }
+
+  @font-face {
+    font-family: 'GT America';
+    src:
+      url('/fonts/gt-america/GT-America-Standard-Medium-Trial.woff2') format('woff2'),
+      url('/fonts/gt-america/GT-America-Standard-Medium-Trial.otf') format('opentype');
+    font-weight: 500;
+    font-style: normal;
+    font-display: swap;
+  }
+
+  /* KMR Waldenburg (Regular / Medium) */
+  @font-face {
+    font-family: 'Waldenburg';
+    src:
+      url('/fonts/waldenburg/KMRWaldenburg-Regular.woff2') format('woff2'),
+      url('/fonts/waldenburg/KMRWaldenburg-Regular.otf') format('opentype');
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+  }
+
+  @font-face {
+    font-family: 'Waldenburg';
+    src:
+      url('/fonts/waldenburg/KMRWaldenburg-Medium.woff2') format('woff2'),
+      url('/fonts/waldenburg/KMRWaldenburg-Medium.otf') format('opentype');
+    font-weight: 500;
+    font-style: normal;
     font-display: swap;
   }
 
@@ -232,10 +468,63 @@
   /* macOS sidebar vibrancy tuning knobs (light mode)
      Lower alpha = more native frosted glass visible.
      Raise alpha = more opaque white overlay. */
-  --sidebar-vibrancy-bg: rgba(255, 255, 255, 0.12);
+  --sidebar-vibrancy-bg: rgba(255, 255, 255, 0.28);
   --sidebar-vibrancy-border: rgba(0, 0, 0, 0.08);
-  --sidebar-vibrancy-selected: rgba(255, 255, 255, 0.25);
+  --sidebar-vibrancy-selected: rgba(255, 255, 255, 0.33);
+  --titlebar-glass-bg: rgba(255, 255, 255, 0.46);
+  --titlebar-glass-bg-strong: rgba(255, 255, 255, 0.62);
+  --titlebar-glass-control-bg: rgba(255, 255, 255, 0.42);
+  --titlebar-glass-control-hover-bg: rgba(255, 255, 255, 0.58);
+  --titlebar-glass-control-active-bg: rgba(255, 255, 255, 0.74);
+  --titlebar-glass-control-border: rgba(15, 23, 42, 0.06);
+  --titlebar-glass-control-text: rgba(17, 24, 39, 0.66);
+  --titlebar-glass-control-text-muted: rgba(17, 24, 39, 0.46);
+  --titlebar-glass-control-text-active: rgba(17, 24, 39, 0.92);
+  --titlebar-glass-border: rgba(15, 23, 42, 0.052);
+  --titlebar-glass-highlight: rgba(255, 255, 255, 0.24);
+  --titlebar-glass-filter: none;
   --content-bg: #fefefe;
+
+  /* Ritual design system v0
+     Semantic app chrome tokens. Keep these as the first layer components
+     consume; appearance presets and platform-specific rules can remap them. */
+  --surface-window: #fefefe;
+  --surface-content: #fefefe;
+  --surface-chrome: var(--titlebar-glass-bg);
+  --surface-sidebar: var(--sidebar-vibrancy-bg);
+  --surface-panel: #f4f4f3;
+  --surface-control: rgba(255, 255, 255, 0.42);
+  --surface-control-hover: rgba(255, 255, 255, 0.58);
+  --border-subtle: rgba(15, 23, 42, 0.052);
+  --border-muted: rgba(15, 23, 42, 0.035);
+  --row-hover: rgba(17, 24, 39, 0.032);
+  --row-active: var(--row-hover);
+  --row-active-hover: var(--row-hover);
+  --text-primary: #111111;
+  --text-secondary: #666666;
+  --text-muted: #7a7a7a;
+  --ritual-focus-ring: #306774;
+  --ritual-status-info: #306774;
+  --ritual-status-danger: #9f2d20;
+  --icon-default: #5f6368;
+  --icon-muted: #888888;
+  --sidebar-nav-foreground: #303030;
+  --sidebar-nav-active: #111111;
+  --radius-control: 0.125rem;
+  --radius-row: 0.5rem;
+  --sidebar-row-radius: 0.5rem;
+  --titlebar-height: 37px;
+  --sidebar-row-height: 34px;
+  --sidebar-row-gap: 5px;
+  --sidebar-row-x: 9px;
+  --sidebar-icon-x: 15px;
+  --sidebar-icon-size: 18px;
+  --sidebar-icon-box: 40px;
+
+  /* Tasks / Routines layout */
+  --task-row-height: 36px;
+  --task-group-gap: 24px;
+  --task-content-max: 1120px;
 }
 
 .dark {
@@ -263,7 +552,42 @@
   --sidebar-vibrancy-bg: rgba(20, 20, 22, 0.15);
   --sidebar-vibrancy-border: rgba(255, 255, 255, 0.10);
   --sidebar-vibrancy-selected: rgba(255, 255, 255, 0.06);
+  --titlebar-glass-bg: rgba(31, 32, 34, 0.44);
+  --titlebar-glass-bg-strong: rgba(45, 46, 48, 0.5);
+  --titlebar-glass-control-bg: rgba(255, 255, 255, 0.1);
+  --titlebar-glass-control-hover-bg: rgba(255, 255, 255, 0.16);
+  --titlebar-glass-control-active-bg: rgba(255, 255, 255, 0.22);
+  --titlebar-glass-control-border: rgba(255, 255, 255, 0.13);
+  --titlebar-glass-control-text: rgba(244, 243, 236, 0.78);
+  --titlebar-glass-control-text-muted: rgba(244, 243, 236, 0.56);
+  --titlebar-glass-control-text-active: rgba(255, 255, 250, 0.95);
+  --titlebar-glass-border: rgba(255, 255, 255, 0.08);
+  --titlebar-glass-highlight: rgba(255, 255, 255, 0.18);
+  --titlebar-glass-filter: none;
   --content-bg: #0b0b0c;
+
+  --surface-window: #0b0b0c;
+  --surface-content: #0b0b0c;
+  --surface-chrome: var(--titlebar-glass-bg);
+  --surface-sidebar: var(--sidebar-vibrancy-bg);
+  --surface-panel: #151516;
+  --surface-control: rgba(255, 255, 255, 0.1);
+  --surface-control-hover: rgba(255, 255, 255, 0.16);
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --border-muted: rgba(255, 255, 255, 0.06);
+  --row-hover: rgba(255, 255, 255, 0.055);
+  --row-active: var(--row-hover);
+  --row-active-hover: var(--row-hover);
+  --text-primary: #f7f7f3;
+  --text-secondary: #b8b8b2;
+  --text-muted: #9a9a94;
+  --ritual-focus-ring: #72a8b4;
+  --ritual-status-info: #72a8b4;
+  --ritual-status-danger: #d97368;
+  --icon-default: #b7b7b0;
+  --icon-muted: #969690;
+  --sidebar-nav-foreground: #d0d0ca;
+  --sidebar-nav-active: #f7f7f3;
 }
 
 @layer base {
@@ -326,6 +650,436 @@
     cursor: text !important;
   }
 
+  .ritual-app-chrome {
+    background: var(--surface-window);
+    color: var(--text-primary);
+  }
+
+  .ritual-titlebar {
+    height: var(--titlebar-height);
+    background: var(--surface-chrome);
+    border-bottom: 0;
+  }
+
+  .ritual-titlebar::after {
+    content: "";
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: var(--ritual-sidebar-current-width, 256px);
+    z-index: 46;
+    height: 1px;
+    pointer-events: none;
+    background: var(--titlebar-glass-border);
+  }
+
+  .ritual-content-surface {
+    background: var(--surface-content);
+  }
+
+  .ritual-sidebar-shell {
+    background: var(--surface-sidebar);
+    border-right: 0;
+  }
+
+  .app-window-shell.has-shell-sidebar-divider::before {
+    content: none;
+  }
+
+  .sidebar-vibrancy::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 5;
+    width: 1px;
+    pointer-events: none;
+    background: var(--sidebar-vibrancy-border);
+  }
+
+  .integrated-window-chrome .content-shell {
+    position: relative;
+    isolation: isolate;
+    background: var(--content-bg);
+  }
+
+  .integrated-window-chrome .app-toolbar-region {
+    box-shadow: none;
+  }
+
+  .integrated-window-chrome .app-toolbar-region::after {
+    display: none;
+  }
+
+  .ritual-sidebar-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sidebar-row-gap);
+    width: 100%;
+  }
+
+  .ritual-nav-row-surface {
+    height: var(--sidebar-row-height);
+    border-radius: var(--sidebar-row-radius);
+    transition: none;
+  }
+
+  .group\/nav-item:hover .ritual-nav-row-surface[data-expanded="true"],
+  .group\/settings-row:hover .ritual-nav-row-surface[data-expanded="true"] {
+    background-color: var(--row-hover);
+  }
+
+  .ritual-nav-row-surface[data-active="true"][data-expanded="true"] {
+    background-color: var(--row-active);
+  }
+
+  .group\/nav-item:hover .ritual-nav-row-surface[data-active="true"][data-expanded="true"],
+  .group\/settings-row:hover .ritual-nav-row-surface[data-active="true"][data-expanded="true"] {
+    background-color: var(--row-active-hover);
+  }
+
+  .ritual-nav-row-surface[data-expanded="false"] {
+    background-color: transparent;
+  }
+
+  .group\/nav-item:hover .ritual-nav-row-surface[data-expanded="false"],
+  .group\/settings-row:hover .ritual-nav-row-surface[data-expanded="false"],
+  .ritual-nav-row-surface[data-active="true"][data-expanded="false"] {
+    background-color: transparent;
+  }
+
+  .ritual-nav-icon {
+    color: var(--sidebar-nav-foreground);
+    transition: none;
+  }
+
+  .ritual-nav-icon[data-collapsed="true"] {
+    color: var(--sidebar-nav-foreground);
+  }
+
+  .group\/nav-item:hover .ritual-nav-icon,
+  .group\/settings-row:hover .ritual-nav-icon {
+    color: var(--sidebar-nav-active);
+  }
+
+  .group\/nav-item:hover .ritual-nav-icon[data-collapsed="true"],
+  .group\/settings-row:hover .ritual-nav-icon[data-collapsed="true"],
+  .ritual-nav-icon[data-active="true"][data-collapsed="true"] {
+    color: var(--sidebar-nav-active);
+  }
+
+  .ritual-nav-label {
+    color: var(--sidebar-nav-foreground);
+    font-weight: 400;
+    -webkit-text-stroke: 0.1px currentColor;
+    transition: none;
+  }
+
+  .ritual-nav-child-label {
+    font-weight: 400;
+    -webkit-text-stroke: 0.1px currentColor;
+  }
+
+  .group\/nav-item:hover .ritual-nav-label,
+  .group\/settings-row:hover .ritual-nav-label {
+    color: var(--sidebar-nav-active);
+  }
+
+  .ritual-nav-label[data-active="true"],
+  .ritual-nav-icon[data-active="true"] {
+    color: var(--sidebar-nav-active);
+  }
+
+  .ritual-toolbar-button {
+    color: var(--titlebar-glass-control-text-muted);
+    border-radius: var(--radius-control);
+    transition:
+      color 90ms ease-out,
+      background-color 90ms ease-out;
+  }
+
+  .ritual-toolbar-button:hover {
+    color: var(--titlebar-glass-control-text-active);
+  }
+
+  .ritual-panel {
+    background: var(--surface-panel);
+    border-color: var(--border-subtle);
+  }
+
+  .ritual-settings-row {
+    color: var(--text-primary);
+  }
+
+  .titlebar-control {
+    border-radius: 0.125rem !important;
+    border: 1px solid rgba(15, 23, 42, 0.06) !important;
+    background: rgba(255, 255, 255, 0.42) !important;
+    box-shadow:
+      0 1px 1px rgba(15, 23, 42, 0.035),
+      inset 0 1px 0 rgba(255, 255, 255, 0.62) !important;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  .titlebar-control:hover {
+    border-color: rgba(15, 23, 42, 0.08) !important;
+    background: rgba(255, 255, 255, 0.58) !important;
+  }
+
+  .titlebar-control:active,
+  .titlebar-control[data-state="open"] {
+    background: rgba(255, 255, 255, 0.74) !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.68),
+      0 1px 1px rgba(15, 23, 42, 0.035) !important;
+  }
+
+  .titlebar-sidebar-lane {
+    width: max(var(--ritual-sidebar-current-width, 76px), 256px);
+    background: var(--surface-sidebar);
+    border-right: 0;
+  }
+
+  .app-toolbar-region {
+    border-bottom: 0;
+    background: var(--content-bg);
+    box-shadow: none;
+  }
+
+  .app-toolbar-control kbd {
+    border: 0;
+    background: transparent;
+    color: #9b9a96;
+    box-shadow: none;
+  }
+
+  .app-toolbar-icon-button {
+    display: inline-flex;
+    height: 28px;
+    width: 28px;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid transparent !important;
+    border-radius: 7px !important;
+    background: transparent !important;
+    color: rgba(72, 77, 82, 0.78) !important;
+    box-shadow: none !important;
+    transition: background-color 120ms ease, color 120ms ease;
+  }
+
+  .app-toolbar-icon-button svg {
+    width: 16px;
+    height: 16px;
+    stroke-width: 1.75;
+  }
+
+  .app-toolbar-icon-button:hover,
+  .app-toolbar-icon-button:focus-visible,
+  .app-toolbar-icon-button[data-state="open"],
+  .app-toolbar-icon-button[aria-expanded="true"] {
+    background: rgba(0, 0, 0, 0.045) !important;
+    color: rgba(42, 47, 52, 0.96) !important;
+  }
+
+  .app-toolbar-icon-button:active {
+    background: rgba(0, 0, 0, 0.07) !important;
+  }
+
+  .app-toolbar-pill-button,
+  .app-toolbar-icon-button.app-toolbar-pill-button {
+    display: inline-flex;
+    height: 28px !important;
+    width: auto !important;
+    min-width: 36px;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    border: 1px solid var(--border-subtle) !important;
+    border-radius: 9999px !important;
+    background: var(--surface-control) !important;
+    padding: 0 10px !important;
+    color: var(--text-secondary) !important;
+    box-shadow: none !important;
+    font-size: 12.5px;
+    font-weight: 450;
+    line-height: 1;
+    transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+  }
+
+  .app-toolbar-pill-button:hover,
+  .app-toolbar-pill-button:focus-visible,
+  .app-toolbar-pill-button[data-state="open"],
+  .app-toolbar-pill-button[aria-expanded="true"],
+  .app-toolbar-icon-button.app-toolbar-pill-button:hover,
+  .app-toolbar-icon-button.app-toolbar-pill-button:focus-visible,
+  .app-toolbar-icon-button.app-toolbar-pill-button[data-state="open"],
+  .app-toolbar-icon-button.app-toolbar-pill-button[aria-expanded="true"] {
+    border-color: color-mix(in srgb, var(--text-primary) 10%, transparent) !important;
+    background: var(--row-hover) !important;
+    color: var(--text-primary) !important;
+  }
+
+  .app-toolbar-pill-button:active,
+  .app-toolbar-icon-button.app-toolbar-pill-button:active {
+    background: var(--row-active) !important;
+  }
+
+  .app-toolbar-pill-button svg {
+    width: 15px;
+    height: 15px;
+    stroke-width: 1.75;
+  }
+
+  .titlebar-segmented-control {
+    border-radius: 0.125rem !important;
+    border: 1px solid rgba(15, 23, 42, 0.055);
+    background: rgba(255, 255, 255, 0.34);
+    box-shadow:
+      0 1px 1px rgba(15, 23, 42, 0.035),
+      inset 0 1px 0 rgba(255, 255, 255, 0.6);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  .titlebar-segmented-control [role="tab"] {
+    border-radius: 0.125rem !important;
+  }
+
+  .titlebar-search-control kbd {
+    border-radius: 0.125rem !important;
+    border-color: rgba(15, 23, 42, 0.08);
+    background: rgba(246, 247, 248, 0.82);
+    color: rgba(17, 24, 39, 0.48);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.64);
+  }
+
+  .titlebar-icon-button {
+    border-radius: 0.125rem !important;
+    border: 1px solid transparent !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  .titlebar-icon-button:hover {
+    border-color: transparent !important;
+    background: transparent !important;
+    color: rgba(17, 24, 39, 0.78) !important;
+  }
+
+  .titlebar-icon-button:active,
+  .titlebar-icon-button[data-state="open"] {
+    border-color: transparent !important;
+    background: transparent !important;
+    color: rgba(17, 24, 39, 0.86) !important;
+  }
+
+  .app-toolbar-icon-button {
+    border-radius: 7px !important;
+  }
+
+  .app-toolbar-nav-button {
+    color: rgba(74, 79, 84, 0.46) !important;
+  }
+
+  .app-toolbar-nav-button:hover {
+    color: rgba(74, 79, 84, 0.62) !important;
+  }
+
+  .app-toolbar-nav-button:active,
+  .app-toolbar-nav-button[data-state="open"] {
+    color: rgba(74, 79, 84, 0.74) !important;
+  }
+
+  html.desktop[data-glass-chrome="1"] .titlebar-control {
+    border-color: var(--titlebar-glass-control-border) !important;
+    background: var(--titlebar-glass-control-bg) !important;
+    color: var(--titlebar-glass-control-text) !important;
+    box-shadow:
+      0 1px 1px rgba(15, 23, 42, 0.035),
+      inset 0 1px 0 rgba(255, 255, 255, 0.62) !important;
+    backdrop-filter: var(--titlebar-glass-filter);
+    -webkit-backdrop-filter: var(--titlebar-glass-filter);
+  }
+
+  html.desktop[data-glass-chrome="1"] .titlebar-control:hover {
+    border-color: rgba(15, 23, 42, 0.08) !important;
+    background: var(--titlebar-glass-control-hover-bg) !important;
+    color: var(--titlebar-glass-control-text-active) !important;
+  }
+
+  html.desktop[data-glass-chrome="1"] .titlebar-control:active,
+  html.desktop[data-glass-chrome="1"] .titlebar-control[data-state="open"] {
+    background: var(--titlebar-glass-control-active-bg) !important;
+    color: var(--titlebar-glass-control-text-active) !important;
+  }
+
+  html.desktop[data-glass-chrome="1"] .titlebar-icon-button {
+    border-color: transparent !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  html.desktop[data-glass-chrome="1"] .titlebar-icon-button:hover {
+    border-color: transparent !important;
+    background: transparent !important;
+    color: var(--titlebar-glass-control-text-active) !important;
+  }
+
+  html.desktop[data-glass-chrome="1"] .titlebar-icon-button:active,
+  html.desktop[data-glass-chrome="1"] .titlebar-icon-button[data-state="open"] {
+    border-color: transparent !important;
+    background: transparent !important;
+    color: var(--titlebar-glass-control-text-active) !important;
+  }
+
+  html.desktop[data-glass-chrome="1"] .titlebar-control svg,
+  html.desktop[data-glass-chrome="1"] .titlebar-control span {
+    color: inherit !important;
+  }
+
+  html.desktop[data-glass-chrome="1"] .titlebar-search-control kbd {
+    border-color: var(--titlebar-glass-control-border);
+    background: rgba(255, 255, 255, 0.42);
+    color: var(--titlebar-glass-control-text-muted);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.62);
+  }
+
+  html.desktop[data-glass-chrome="1"] .titlebar-segmented-control {
+    border-color: var(--titlebar-glass-control-border);
+    background: rgba(255, 255, 255, 0.32);
+    box-shadow:
+      0 1px 1px rgba(15, 23, 42, 0.035),
+      inset 0 1px 0 rgba(255, 255, 255, 0.6);
+    backdrop-filter: var(--titlebar-glass-filter);
+    -webkit-backdrop-filter: var(--titlebar-glass-filter);
+  }
+
+  html.desktop[data-glass-chrome="1"] .titlebar-segmented-control [role="tab"] {
+    border-radius: 0.125rem !important;
+    color: var(--titlebar-glass-control-text-muted) !important;
+  }
+
+  html.desktop[data-glass-chrome="1"] .titlebar-segmented-control [role="tab"]:hover {
+    background: var(--titlebar-glass-control-hover-bg) !important;
+    color: var(--titlebar-glass-control-text-active) !important;
+  }
+
+  html.desktop[data-glass-chrome="1"] .titlebar-segmented-control [role="tab"][aria-selected="true"] {
+    background: var(--titlebar-glass-control-active-bg) !important;
+    color: var(--titlebar-glass-control-text-active) !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.68),
+      0 1px 1px rgba(15, 23, 42, 0.035) !important;
+  }
+
   /* Remove all borders and outlines from the root elements */
   #__next,
   #root,
@@ -368,12 +1122,29 @@
     opacity: 0;
   }
 
-  /* Scoped command palette override: force square items */
+  /* Command palette rows: keep rounded + instant hover (override older square force) */
+  .rtlp-cmd {
+    background: transparent !important;
+  }
+
+  .rtlp-cmd [cmdk-list],
+  .rtlp-cmd [cmdk-group] {
+    background: transparent !important;
+  }
+
   .rtlp-cmd [cmdk-item],
   .rtlp-cmd [cmdk-item][data-selected="true"],
   .rtlp-cmd [cmdk-item]:hover,
   .rtlp-cmd [cmdk-item]:focus {
-    border-radius: 0 !important;
+    border-radius: 0.375rem !important;
+    cursor: pointer !important;
+    pointer-events: auto !important;
+  }
+
+  .rtlp-cmd [cmdk-item]:hover,
+  .rtlp-cmd [cmdk-item][data-selected="true"],
+  .rtlp-cmd [cmdk-item][aria-selected="true"] {
+    background-color: #F3F3F3 !important;
   }
 
   html.desktop body {
@@ -395,18 +1166,6 @@
     overflow: hidden;
   }
 
-  html.desktop[data-platform="macos"] .app-container::after,
-  html.desktop:not([data-platform]) .app-container::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    border-radius: inherit;
-    border: 1px solid rgba(15, 23, 42, 0.055);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.46);
-    z-index: 40;
-  }
-
   /* Non-macOS desktop gets opaque background */
   html.desktop[data-platform="windows"] body,
   html.desktop[data-platform="linux"] body {
@@ -417,8 +1176,8 @@
   html.desktop[data-transparency-probe="1"] body,
   html.desktop[data-transparency-probe="1"] #__next,
   html.desktop[data-transparency-probe="1"] #root {
-    background: transparent !important;
-    background-color: transparent !important;
+    background: hsl(var(--background)) !important;
+    background-color: hsl(var(--background)) !important;
   }
 
   html.desktop[data-transparency-probe="1"] .tauri-drag-region {
@@ -431,18 +1190,18 @@
     display: flex;
     align-items: stretch;
     justify-content: flex-start;
-    background: transparent;
+    background: hsl(var(--background));
     padding: 24px;
   }
 
   .transparency-probe-panel {
     width: min(360px, 42vw);
     min-width: 280px;
-    border: 1px solid rgba(255, 255, 255, 0.35);
-    background: rgba(255, 255, 255, 0.18);
+    border: 1px solid hsl(var(--border) / 0.55);
+    background: hsl(var(--card) / 0.72);
     backdrop-filter: saturate(145%) blur(18px);
     -webkit-backdrop-filter: saturate(145%) blur(18px);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45), 0 14px 32px rgba(0, 0, 0, 0.18);
+    box-shadow: inset 0 1px 0 hsl(var(--background) / 0.7), 0 14px 32px hsl(var(--foreground) / 0.18);
     padding: 20px;
   }
 
@@ -450,14 +1209,14 @@
     margin: 0 0 10px 0;
     font-size: 20px;
     line-height: 1.2;
-    color: #111111;
+    color: hsl(var(--foreground));
   }
 
   .transparency-probe-body {
     margin: 0 0 12px 0;
     font-size: 13px;
     line-height: 1.45;
-    color: #222222;
+    color: hsl(var(--foreground));
   }
 
   .transparency-probe-list {
@@ -465,34 +1224,34 @@
     padding-left: 18px;
     font-size: 12px;
     line-height: 1.45;
-    color: #202020;
+    color: hsl(var(--muted-foreground));
+  }
+
+  .transparency-probe-panel [data-qa-probe="hit-test-target"] {
+    position: fixed;
+    left: 20vw;
+    top: 72vh;
+    transform: translate(-50%, -50%);
   }
   /* ===== End Transparency Probe Mode ===== */
 
-  /* Desktop fallback glass: preserve the intended frosted sidebar look even
-     if native macOS glass is unavailable or disabled for a given session. */
+  /* Desktop fallback paint when native glass is off. Never use CSS blur here:
+     backdrop-filter in Tauri's macOS WebKit webview forces GPU recomposites
+     on hover/scroll and can freeze the app. */
   html.desktop .sidebar-vibrancy {
-    background:
-      linear-gradient(
-        180deg,
-        rgba(246, 245, 243, 0.97) 0%,
-        rgba(244, 243, 240, 0.95) 42%,
-        rgba(242, 241, 238, 0.93) 100%
-      );
-    background-color: rgba(244, 243, 240, 0.95);
-    border-right: 1px solid rgba(15, 23, 42, 0.05);
-    /* backdrop-filter removed: blur() in Tauri's macOS WebKit webview
-       forces expensive GPU recomposites on every hover/scroll, causing
-       the entire app to freeze with the macOS pinwheel. The slightly
-       higher opacity backgrounds above preserve the frosted look. */
+    background: var(--surface-sidebar);
+    background-color: var(--surface-sidebar);
+    border-right: 0;
     box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
   }
 
   html.desktop .sidebar-vibrancy .sidebar-header {
     border-color: rgba(0, 0, 0, 0.025);
   }
 
-  html.desktop .sidebar-vibrancy::after {
+  html.desktop .titlebar-glass-layer {
     display: none;
   }
 
@@ -529,29 +1288,110 @@
     background-color: transparent !important;
   }
 
-  /* Sidebar: semi-transparent overlay on the native glass.
-     Lower alpha = more of the native NSGlassEffectView shows through.
-     The 1px border-right creates the native sidebar/content separator. */
-  html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy,
-  html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy {
+  html.desktop[data-platform="macos"][data-main-glass="1"] .content-shell,
+  html.desktop:not([data-platform])[data-main-glass="1"] .content-shell {
+    background: transparent !important;
+    background-color: transparent !important;
+  }
+
+  html.desktop[data-platform="macos"][data-glass-chrome="1"] .titlebar-region,
+  html.desktop:not([data-platform])[data-glass-chrome="1"] .titlebar-region {
     background: linear-gradient(
       180deg,
-      rgba(255, 255, 255, 0.48) 0%,
-      rgba(252, 252, 250, 0.36) 46%,
-      rgba(249, 249, 247, 0.30) 100%
+      rgba(255, 255, 255, 0.64) 0%,
+      rgba(255, 255, 255, 0.52) 48%,
+      rgba(252, 252, 250, 0.44) 100%
     ) !important;
-    background-color: rgba(252, 252, 250, 0.34) !important;
-    border-right: 1px solid rgba(15, 23, 42, 0.045) !important;
+    background-color: var(--titlebar-glass-bg) !important;
+    border-bottom: 0;
+    box-shadow: none;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+
+  html.desktop[data-platform="macos"][data-glass-chrome="1"] .app-toolbar-region,
+  html.desktop:not([data-platform])[data-glass-chrome="1"] .app-toolbar-region {
+    background: var(--content-bg) !important;
+    box-shadow: none;
+  }
+
+  html.desktop[data-platform="macos"][data-glass-chrome="1"] .titlebar-glass-layer,
+  html.desktop:not([data-platform])[data-glass-chrome="1"] .titlebar-glass-layer {
+    display: block;
+    background:
+      linear-gradient(135deg, rgba(255, 255, 255, 0.26) 0%, rgba(255, 255, 255, 0.08) 42%, rgba(255, 255, 255, 0.0) 100%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0.0) 44%);
+    opacity: 0.9;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  html.desktop[data-platform="macos"][data-glass-chrome="1"] .sidebar-vibrancy .sidebar-header,
+  html.desktop:not([data-platform])[data-glass-chrome="1"] .sidebar-vibrancy .sidebar-header {
+    background: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.64) 0%,
+      rgba(255, 255, 255, 0.52) 48%,
+      rgba(252, 252, 250, 0.44) 100%
+    ) !important;
+    background-color: var(--titlebar-glass-bg) !important;
+    box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  html.desktop[data-platform="macos"][data-glass-chrome="1"] .chat-header-sidebar-strip,
+  html.desktop:not([data-platform])[data-glass-chrome="1"] .chat-header-sidebar-strip {
+    background: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.64) 0%,
+      rgba(255, 255, 255, 0.52) 48%,
+      rgba(252, 252, 250, 0.44) 100%
+    ) !important;
+    background-color: var(--titlebar-glass-bg) !important;
+    border-color: var(--titlebar-glass-border) !important;
+    box-shadow: none;
+  }
+
+  html.desktop[data-platform="macos"][data-glass-chrome="1"][data-window-active="0"] .titlebar-glass-layer,
+  html.desktop:not([data-platform])[data-glass-chrome="1"][data-window-active="0"] .titlebar-glass-layer {
+    opacity: 0.82;
+  }
+
+  /* Sidebar: light tint over native glass so WKWebView still hit-tests.
+     Lower alpha = more NSGlassEffectView / Sidebar vibrancy visible. */
+  html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy,
+  html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy {
+    background: var(--sidebar-vibrancy-bg) !important;
+    background-color: var(--sidebar-vibrancy-bg) !important;
+    border-right: 0 !important;
     box-shadow: none !important;
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
   }
 
-  /* All children inside the sidebar must be transparent */
-  html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy *,
-  html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy * {
-    background: transparent !important;
+  html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .ritual-nav-row-surface,
+  html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .ritual-nav-row-surface {
     background-color: transparent !important;
+  }
+
+  html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .group\/nav-item:hover .ritual-nav-row-surface[data-expanded="true"],
+  html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .group\/settings-row:hover .ritual-nav-row-surface[data-expanded="true"],
+  html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .group\/nav-item:hover .ritual-nav-row-surface[data-expanded="true"],
+  html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .group\/settings-row:hover .ritual-nav-row-surface[data-expanded="true"] {
+    background-color: var(--row-hover) !important;
+  }
+
+  html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .ritual-nav-row-surface[data-active="true"][data-expanded="true"],
+  html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .ritual-nav-row-surface[data-active="true"][data-expanded="true"] {
+    background-color: var(--row-active) !important;
+  }
+
+  html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .group\/nav-item:hover .ritual-nav-row-surface[data-active="true"][data-expanded="true"],
+  html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .group\/settings-row:hover .ritual-nav-row-surface[data-active="true"][data-expanded="true"],
+  html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .group\/nav-item:hover .ritual-nav-row-surface[data-active="true"][data-expanded="true"],
+  html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .group\/settings-row:hover .ritual-nav-row-surface[data-active="true"][data-expanded="true"] {
+    background-color: var(--row-active-hover) !important;
   }
 
   html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .sidebar-header,
@@ -561,24 +1401,149 @@
 
   html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy::before,
   html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    background:
-      linear-gradient(135deg, rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0.035) 38%, rgba(255, 255, 255, 0.0) 100%),
-      linear-gradient(180deg, rgba(255, 255, 255, 0.075) 0%, rgba(255, 255, 255, 0.0) 40%);
-    opacity: 0.78;
-  }
-
-  html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy::after,
-  html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy::after {
     display: none;
   }
 
-  /* Opaque main content — covers the glass so only sidebar is glassy */
+  html.desktop[data-chrome-appearance="white"] .titlebar-region,
+  html.desktop[data-chrome-appearance="white"] .sidebar-vibrancy .sidebar-header,
+  html.desktop[data-chrome-appearance="white"] .chat-header-sidebar-strip {
+    background: #ffffff !important;
+    background-color: #ffffff !important;
+    box-shadow: none !important;
+  }
+
+  html.desktop[data-chrome-appearance="white"] .sidebar-vibrancy {
+    background: #ffffff !important;
+    background-color: #ffffff !important;
+    border-right: 0 !important;
+  }
+
+  html.desktop[data-chrome-appearance="white"] .titlebar-glass-layer,
+  html.desktop[data-chrome-appearance="white"] .sidebar-vibrancy::before {
+    display: none !important;
+  }
+
+  html.desktop[data-chrome-appearance="soft"] .titlebar-region,
+  html.desktop[data-chrome-appearance="soft"] .sidebar-vibrancy .sidebar-header,
+  html.desktop[data-chrome-appearance="soft"] .chat-header-sidebar-strip {
+    background: #efefef !important;
+    background-color: #efefef !important;
+    box-shadow: none !important;
+  }
+
+  html.desktop[data-chrome-appearance="soft"] .sidebar-vibrancy {
+    background: #efefef !important;
+    background-color: #efefef !important;
+    border-right: 0 !important;
+  }
+
+  html.desktop[data-chrome-appearance="soft"] .titlebar-glass-layer,
+  html.desktop[data-chrome-appearance="soft"] .sidebar-vibrancy::before {
+    display: none !important;
+  }
+
+  html.desktop[data-chrome-appearance="zed"] .titlebar-region,
+  html.desktop[data-chrome-appearance="zed"] .sidebar-vibrancy .sidebar-header,
+  html.desktop[data-chrome-appearance="zed"] .chat-header-sidebar-strip {
+    background: #eeeeec !important;
+    background-color: #eeeeec !important;
+    box-shadow: none !important;
+  }
+
+  html.desktop[data-chrome-appearance="zed"] .sidebar-vibrancy {
+    background: #eeeeec !important;
+    background-color: #eeeeec !important;
+    border-right: 0 !important;
+  }
+
+  html.desktop[data-chrome-appearance="zed"] .titlebar-glass-layer,
+  html.desktop[data-chrome-appearance="zed"] .sidebar-vibrancy::before {
+    display: none !important;
+  }
+
+  html.desktop[data-chrome-appearance="zed"] .titlebar-icon-button {
+    color: rgba(76, 82, 88, 0.78) !important;
+  }
+
+  html.desktop[data-chrome-appearance="zed"] .titlebar-icon-button:hover {
+    color: rgba(60, 65, 70, 0.94) !important;
+  }
+
+  html.desktop[data-platform="macos"][data-main-glass="1"][data-chrome-appearance="white"] .sidebar-vibrancy,
+  html.desktop:not([data-platform])[data-main-glass="1"][data-chrome-appearance="white"] .sidebar-vibrancy {
+    background: #ffffff !important;
+    background-color: #ffffff !important;
+    border-right: 0 !important;
+  }
+
+  html.desktop[data-platform="macos"][data-main-glass="1"][data-chrome-appearance="white"] .sidebar-vibrancy::before,
+  html.desktop:not([data-platform])[data-main-glass="1"][data-chrome-appearance="white"] .sidebar-vibrancy::before {
+    display: none !important;
+  }
+
+  html.desktop[data-platform="macos"][data-glass-chrome="1"][data-chrome-appearance="white"] .sidebar-vibrancy .sidebar-header,
+  html.desktop:not([data-platform])[data-glass-chrome="1"][data-chrome-appearance="white"] .sidebar-vibrancy .sidebar-header,
+  html.desktop[data-platform="macos"][data-glass-chrome="1"][data-chrome-appearance="white"] .chat-header-sidebar-strip,
+  html.desktop:not([data-platform])[data-glass-chrome="1"][data-chrome-appearance="white"] .chat-header-sidebar-strip {
+    background: #ffffff !important;
+    background-color: #ffffff !important;
+    box-shadow: none !important;
+  }
+
+  html.desktop[data-platform="macos"][data-main-glass="1"][data-chrome-appearance="soft"] .sidebar-vibrancy,
+  html.desktop:not([data-platform])[data-main-glass="1"][data-chrome-appearance="soft"] .sidebar-vibrancy {
+    background: #efefef !important;
+    background-color: #efefef !important;
+    border-right: 0 !important;
+  }
+
+  html.desktop[data-platform="macos"][data-main-glass="1"][data-chrome-appearance="soft"] .sidebar-vibrancy::before,
+  html.desktop:not([data-platform])[data-main-glass="1"][data-chrome-appearance="soft"] .sidebar-vibrancy::before {
+    display: none !important;
+  }
+
+  html.desktop[data-platform="macos"][data-glass-chrome="1"][data-chrome-appearance="soft"] .sidebar-vibrancy .sidebar-header,
+  html.desktop:not([data-platform])[data-glass-chrome="1"][data-chrome-appearance="soft"] .sidebar-vibrancy .sidebar-header,
+  html.desktop[data-platform="macos"][data-glass-chrome="1"][data-chrome-appearance="soft"] .chat-header-sidebar-strip,
+  html.desktop:not([data-platform])[data-glass-chrome="1"][data-chrome-appearance="soft"] .chat-header-sidebar-strip {
+    background: #efefef !important;
+    background-color: #efefef !important;
+    box-shadow: none !important;
+  }
+
+  html.desktop[data-platform="macos"][data-main-glass="1"][data-chrome-appearance="zed"] .sidebar-vibrancy,
+  html.desktop:not([data-platform])[data-main-glass="1"][data-chrome-appearance="zed"] .sidebar-vibrancy {
+    background: #eeeeec !important;
+    background-color: #eeeeec !important;
+    border-right: 0 !important;
+  }
+
+  html.desktop[data-platform="macos"][data-main-glass="1"][data-chrome-appearance="zed"] .sidebar-vibrancy::before,
+  html.desktop:not([data-platform])[data-main-glass="1"][data-chrome-appearance="zed"] .sidebar-vibrancy::before {
+    display: none !important;
+  }
+
+  html.desktop[data-platform="macos"][data-glass-chrome="1"][data-chrome-appearance="zed"] .sidebar-vibrancy .sidebar-header,
+  html.desktop:not([data-platform])[data-glass-chrome="1"][data-chrome-appearance="zed"] .sidebar-vibrancy .sidebar-header,
+  html.desktop[data-platform="macos"][data-glass-chrome="1"][data-chrome-appearance="zed"] .chat-header-sidebar-strip,
+  html.desktop:not([data-platform])[data-glass-chrome="1"][data-chrome-appearance="zed"] .chat-header-sidebar-strip {
+    background: #eeeeec !important;
+    background-color: #eeeeec !important;
+    box-shadow: none !important;
+  }
+
+  /* Sidebar hairline rides the aside edge so it stays aligned during width animation. */
+  html.desktop .app-window-shell.has-shell-sidebar-divider .sidebar-vibrancy {
+    border-right: 0 !important;
+  }
+
+  /* Opaque app surfaces cover native blur so only sidebar/chrome stay glassy. */
+  html.desktop[data-platform="macos"][data-main-glass="1"] .app-toolbar-region,
+  html.desktop:not([data-platform])[data-main-glass="1"] .app-toolbar-region,
   html.desktop[data-platform="macos"][data-main-glass="1"] .content-opaque,
-  html.desktop:not([data-platform])[data-main-glass="1"] .content-opaque {
+  html.desktop:not([data-platform])[data-main-glass="1"] .content-opaque,
+  html.desktop[data-platform="macos"][data-main-glass="1"] .glass-opaque-screen,
+  html.desktop:not([data-platform])[data-main-glass="1"] .glass-opaque-screen {
     background: var(--content-bg) !important;
     background-color: var(--content-bg) !important;
   }
@@ -598,7 +1563,7 @@
   html.desktop[data-sidebar-capture="1"]:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy {
     background: #fefefe !important;
     background-color: #fefefe !important;
-    border-right: 1px solid rgba(15, 23, 42, 0.035) !important;
+    border-right: 0 !important;
     box-shadow: none !important;
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
@@ -618,116 +1583,10 @@
     cursor: default !important;
   }
 
-  /* Team dropdown must stay opaque/interactive inside vibrancy sidebar */
-  html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .team-dropdown-menu,
-  html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .team-dropdown-menu {
-    background: #ffffff !important;
-    background-color: #ffffff !important;
-  }
-
-  html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .team-avatar-tile,
-  html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .team-avatar-tile {
-    background: #e6e6e6 !important;
-    background-color: #e6e6e6 !important;
-    border-color: #E5E7EB !important;
-    color: #3d3b30 !important;
-  }
-
-  html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .team-dropdown-divider,
-  html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .team-dropdown-divider {
-    border-color: #dcdad2 !important;
-    background: transparent !important;
-    background-color: transparent !important;
-  }
-
-  html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .team-dropdown-row,
-  html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .team-dropdown-row {
-    color: #000000 !important;
-    background: transparent !important;
-    background-color: transparent !important;
-  }
-
-  html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .team-dropdown-row:hover,
-  html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .team-dropdown-row:focus-visible,
-  html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .team-dropdown-row:hover,
-  html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .team-dropdown-row:focus-visible {
-    background: #f3f3f3 !important;
-    background-color: #f3f3f3 !important;
-  }
-
 
   /* Remove any remaining browser/system borders */
   ::-webkit-scrollbar {
     display: none;
-  }
-}
-
-/* Voice UI Animations */
-@layer utilities {
-  @keyframes voice-pulse {
-
-    0%,
-    100% {
-      height: 10px;
-      opacity: 0.8;
-    }
-
-    50% {
-      height: 18px;
-      opacity: 1;
-    }
-  }
-
-  @keyframes voice-ripple {
-    0% {
-      transform: scale(1);
-      opacity: 1;
-    }
-
-    100% {
-      transform: scale(1.5);
-      opacity: 0;
-    }
-  }
-
-  @keyframes fade-in {
-    from {
-      opacity: 0;
-    }
-
-    to {
-      opacity: 1;
-    }
-  }
-
-  @keyframes zoom-in {
-    from {
-      transform: scale(0.95);
-    }
-
-    to {
-      transform: scale(1);
-    }
-  }
-
-  .animate-voice-pulse {
-    animation: voice-pulse 0.6s ease-in-out infinite;
-  }
-
-  .animate-voice-ripple {
-    animation: voice-ripple 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;
-  }
-
-  .animate-in {
-    animation: fade-in 0.2s ease-out;
-  }
-
-  .fade-in {
-    animation: fade-in 0.3s ease-out;
-  }
-
-  .zoom-in {
-    animation: zoom-in 0.2s ease-out;
   }
 }
 
@@ -742,7 +1601,7 @@
   a[class~="bg-background"],
   input[type="button"][class~="bg-background"]:not(:disabled),
   input[type="submit"][class~="bg-background"]:not(:disabled) {
-    transition: all 0.2s ease-out;
+    transition: color 0.2s ease-out, background-color 0.2s ease-out, opacity 0.2s ease-out, border-color 0.2s ease-out, box-shadow 0.2s ease-out;
   }
 
   /* Unify black-button hover behavior across the app to match Home "Sign In". */
@@ -758,7 +1617,7 @@
   a[class~="bg-[#111827]"],
   input[type="button"][class~="bg-[#111827]"]:not(:disabled),
   input[type="submit"][class~="bg-[#111827]"]:not(:disabled) {
-    transition: all 0.2s ease-out;
+    transition: color 0.2s ease-out, background-color 0.2s ease-out, opacity 0.2s ease-out, border-color 0.2s ease-out, box-shadow 0.2s ease-out;
   }
 
   button[class~="bg-black"]:not(:disabled):hover,
@@ -823,58 +1682,79 @@
 
 }
 
-/* Fix Recharts min-width issue in CSS Grid layouts */
-.recharts-responsive-container,
-.recharts-wrapper {
-  min-width: 0 !important;
-  max-width: 100% !important;
-}
-
-.recharts-surface {
-  max-width: 100% !important;
-}
-
 /* App font selection - global overrides with high specificity */
 :root {
   --ritual-font-fk: 'FK Grotesk Neue', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --ritual-font-gt-standard: 'GT Standard', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --ritual-font-system: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --ritual-font-gt: 'GT Standard', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --ritual-font-gt-america: 'GT America', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --ritual-font-waldenburg: 'Waldenburg', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --ritual-font-inter: var(--font-inter), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --ritual-font-dm-sans: var(--font-dm-sans), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --ritual-font-geist: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --ritual-selected-font-family: var(--ritual-font-fk);
 }
 
-/* FK Grotesk Neue (default) */
-.font-sans,
-.font-sans *:not([class*="font-"]):not([class*="material-symbols"]):not(code):not(pre):not(kbd) {
+/* App font selection deliberately overrides component-level font-family
+   utilities while preserving code, icon fonts, and the onboarding identity. */
+.ritual-font-fk,
+.ritual-font-fk *:not(.px-onboarding):not(.px-onboarding *):not([class*="material-symbols"]):not(code):not(pre):not(kbd):not(.ritual-index-greeting):not(.ritual-index-greeting *) {
   --ritual-selected-font-family: var(--ritual-font-fk);
   font-family: var(--ritual-selected-font-family) !important;
 }
 
 /* GT Standard */
-.font-gt-standard,
-.font-gt-standard *:not([class*="font-"]):not([class*="material-symbols"]):not(code):not(pre):not(kbd) {
-  --ritual-selected-font-family: var(--ritual-font-gt-standard);
+.ritual-font-gt,
+.ritual-font-gt *:not(.px-onboarding):not(.px-onboarding *):not([class*="material-symbols"]):not(code):not(pre):not(kbd):not(.ritual-index-greeting):not(.ritual-index-greeting *) {
+  --ritual-selected-font-family: var(--ritual-font-gt);
+  font-family: var(--ritual-selected-font-family) !important;
+}
+
+/* GT America */
+.ritual-font-gt-america,
+.ritual-font-gt-america *:not(.px-onboarding):not(.px-onboarding *):not([class*="material-symbols"]):not(code):not(pre):not(kbd):not(.ritual-index-greeting):not(.ritual-index-greeting *) {
+  --ritual-selected-font-family: var(--ritual-font-gt-america);
+  font-family: var(--ritual-selected-font-family) !important;
+}
+
+/* Waldenburg */
+.ritual-font-waldenburg,
+.ritual-font-waldenburg *:not(.px-onboarding):not(.px-onboarding *):not([class*="material-symbols"]):not(code):not(pre):not(kbd):not(.ritual-index-greeting):not(.ritual-index-greeting *) {
+  --ritual-selected-font-family: var(--ritual-font-waldenburg);
+  font-family: var(--ritual-selected-font-family) !important;
+}
+
+/* Inter */
+.ritual-font-inter,
+.ritual-font-inter *:not(.px-onboarding):not(.px-onboarding *):not([class*="material-symbols"]):not(code):not(pre):not(kbd):not(.ritual-index-greeting):not(.ritual-index-greeting *) {
+  --ritual-selected-font-family: var(--ritual-font-inter);
+  font-family: var(--ritual-selected-font-family) !important;
+}
+
+/* DM Sans */
+.ritual-font-dm-sans,
+.ritual-font-dm-sans *:not(.px-onboarding):not(.px-onboarding *):not([class*="material-symbols"]):not(code):not(pre):not(kbd):not(.ritual-index-greeting):not(.ritual-index-greeting *) {
+  --ritual-selected-font-family: var(--ritual-font-dm-sans);
   font-family: var(--ritual-selected-font-family) !important;
 }
 
 /* Geist Sans */
-.font-geist-sans,
-.font-geist-sans *:not([class*="font-"]):not([class*="material-symbols"]):not(code):not(pre):not(kbd) {
+.ritual-font-geist,
+.ritual-font-geist *:not(.px-onboarding):not(.px-onboarding *):not([class*="material-symbols"]):not(code):not(pre):not(kbd):not(.ritual-index-greeting):not(.ritual-index-greeting *) {
   --ritual-selected-font-family: var(--ritual-font-geist);
   font-family: var(--ritual-selected-font-family) !important;
 }
 
-/* System UI (SF Pro on macOS) */
-.font-system-ui,
-.font-system-ui *:not([class*="font-"]):not([class*="material-symbols"]):not(code):not(pre):not(kbd) {
-  --ritual-selected-font-family: var(--ritual-font-system);
-  font-family: var(--ritual-selected-font-family) !important;
+/* Keep Material Symbols from being clobbered by global font overrides. */
+.ritual-font-fk .material-symbols-rounded,
+.ritual-font-gt .material-symbols-rounded,
+.ritual-font-gt-america .material-symbols-rounded,
+.ritual-font-waldenburg .material-symbols-rounded,
+.ritual-font-inter .material-symbols-rounded,
+.ritual-font-dm-sans .material-symbols-rounded,
+.ritual-font-geist .material-symbols-rounded {
+  font-family: 'Material Symbols Rounded' !important;
 }
 
-/* Keep Material Symbols from being clobbered by global font overrides. */
-.font-sans .material-symbols-rounded,
-.font-gt-standard .material-symbols-rounded,
-.font-geist-sans .material-symbols-rounded,
-.font-system-ui .material-symbols-rounded {
-  font-family: 'Material Symbols Rounded' !important;
+html body .ritual-index-greeting {
+  font-family: var(--ritual-font-waldenburg) !important;
 }

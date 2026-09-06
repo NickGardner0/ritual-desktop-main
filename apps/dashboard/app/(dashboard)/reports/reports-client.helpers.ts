@@ -1,14 +1,28 @@
+import { apiOperation } from "@/lib/api/client";
+import {
+  BackendClientError,
+  type BackendOperationId,
+  type BackendOperationRequest,
+  type BackendOperationResponse,
+} from "@/lib/api/generated/backend-client";
 import type {
   ActionProfile,
+  AiFact,
   ArtifactDetail,
   ArtifactKind,
+  ArtifactListResponse,
   ReportRun,
   ReportSchedule,
   WorkflowDefinition,
   WorkflowRun,
+  WorkflowRunQueueResponse,
   WorkflowStatus,
 } from "@/lib/workflows/types";
 import { WORKFLOW_WEEKDAY_OPTIONS } from "@/lib/workflows/types";
+
+export function deferStateUpdate(fn: () => void) {
+  queueMicrotask(fn);
+}
 
 export const ARTIFACT_FILTERS: Array<{ key: "all" | ArtifactKind; label: string }> = [
   { key: "all", label: "All" },
@@ -105,6 +119,24 @@ export interface ProjectTimeRollupResponse {
   source?: string;
 }
 
+export type WorkflowDefinitionPatch = Partial<
+  Pick<
+    WorkflowDefinition,
+    | "definition_family"
+    | "trigger_type"
+    | "signal_kind"
+    | "status"
+    | "schedule"
+    | "config"
+    | "ranking"
+    | "quiet_hours"
+    | "cooldown_minutes"
+    | "delivery"
+  >
+> & {
+  action_profile_id?: string;
+};
+
 export const EMPTY_BLOCK: EditableArtifactBlock = {
   id: "block-new",
   type: "summary",
@@ -115,22 +147,174 @@ export const EMPTY_BLOCK: EditableArtifactBlock = {
   period_label: "",
 };
 
-export async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers || {}),
-    },
-    cache: "no-store",
-  });
-
-  if (!response.ok) {
-    const payload = await response.json().catch(() => ({}));
-    throw new Error(payload?.detail || payload?.error || `Request failed: ${response.status}`);
+async function reportsApi<TOperation extends BackendOperationId>(
+  operationId: TOperation,
+  request: BackendOperationRequest<TOperation> = {},
+): Promise<BackendOperationResponse<TOperation>> {
+  try {
+    return await apiOperation(operationId, request);
+  } catch (error) {
+    if (error instanceof BackendClientError) {
+      let detail: unknown = error.responseBody;
+      try {
+        const payload = JSON.parse(error.responseBody) as { detail?: unknown; error?: unknown };
+        detail = payload.detail || payload.error || error.responseBody;
+      } catch {
+        // Keep the raw FastAPI body when it is not JSON.
+      }
+      throw new Error(typeof detail === "string" && detail.trim() ? detail : `Request failed: ${error.status}`);
+    }
+    throw error;
   }
+}
 
-  return response.json() as Promise<T>;
+export async function fetchArtifactsForReportsSurface(filter: "all" | ArtifactKind): Promise<ArtifactListResponse> {
+  const response = await reportsApi("get_artifacts_api_artifacts_get", {
+    query: { limit: 40, kind: filter === "all" ? null : filter },
+  });
+  return { items: response.items || [], next_cursor: response.next_cursor ?? null } as ArtifactListResponse;
+}
+
+export async function fetchArtifactLibraryForReportsSurface(): Promise<ArtifactListResponse> {
+  const response = await reportsApi("get_artifacts_api_artifacts_get", { query: { limit: 80 } });
+  return { items: response.items || [], next_cursor: response.next_cursor ?? null } as ArtifactListResponse;
+}
+
+export async function fetchArtifactDetailForReportsSurface(artifactId: string | null): Promise<ArtifactDetail | null> {
+  if (!artifactId) return null;
+  return reportsApi("get_artifact_api_artifacts__artifact_id__get", {
+    pathParams: { artifact_id: artifactId },
+  }) as Promise<ArtifactDetail>;
+}
+
+export async function fetchWorkflowDefinitionsForReportsSurface(): Promise<WorkflowDefinition[]> {
+  return ((await reportsApi("get_workflow_definitions_api_workflows_definitions_get")).items || []) as WorkflowDefinition[];
+}
+
+export async function fetchWorkflowRunsForReportsSurface({
+  definitionId,
+  limit = 12,
+}: {
+  definitionId?: string | null;
+  limit?: number;
+} = {}): Promise<WorkflowRun[]> {
+  return ((await reportsApi("get_workflow_runs_api_workflows_runs_get", {
+    query: { limit, definition_id: definitionId || null },
+  })).items || []) as WorkflowRun[];
+}
+
+export async function runWorkflowForReportsSurface(definitionId: string): Promise<WorkflowRunQueueResponse> {
+  return reportsApi("run_workflow_definition_api_workflows_definitions__definition_id__run_post", {
+    pathParams: { definition_id: definitionId },
+  }) as Promise<WorkflowRunQueueResponse>;
+}
+
+export async function patchWorkflowDefinitionById(
+  definitionId: string,
+  patch: WorkflowDefinitionPatch | ReturnType<typeof buildDefinitionPayload>,
+): Promise<WorkflowDefinition> {
+  return reportsApi("patch_workflow_definition_api_workflows_definitions__definition_id__patch", {
+    pathParams: { definition_id: definitionId },
+    body: patch as BackendOperationRequest<"patch_workflow_definition_api_workflows_definitions__definition_id__patch">["body"],
+  }) as Promise<WorkflowDefinition>;
+}
+
+export async function patchWorkflowDefinitionForReportsSurface(
+  definition: WorkflowDefinition,
+  patch: WorkflowDefinitionPatch,
+): Promise<WorkflowDefinition> {
+  return patchWorkflowDefinitionById(definition.id, patch);
+}
+
+export async function fetchReportSchedulesForReportsSurface(): Promise<ReportSchedule[]> {
+  return ((await reportsApi("get_report_schedules_api_reports_schedules_get")).schedules || []) as ReportSchedule[];
+}
+
+export async function fetchReportRunsForReportsSurface(): Promise<ReportRun[]> {
+  return ((await reportsApi("get_report_runs_api_reports_runs_get", { query: { limit: 8 } })).runs || []) as ReportRun[];
+}
+
+export async function fetchActionProfilesForReportsSurface(): Promise<ActionProfile[]> {
+  return ((await reportsApi("get_action_profiles_api_action_profiles_get")).items || []) as ActionProfile[];
+}
+
+export async function fetchFactsForReportsSurface(): Promise<AiFact[]> {
+  return ((await reportsApi("get_facts_api_ai_facts_get")).items || []) as AiFact[];
+}
+
+export async function fetchApprovalsForReportsSurface() {
+  return (await reportsApi("get_approvals_api_approvals_get")).items || [];
+}
+
+export async function fetchProjectTimeRollupsForReportsSurface(
+  range: { start: string; end: string },
+): Promise<ProjectTimeRollupResponse> {
+  return reportsApi("get_rollups_api_watcher_project_time_rollups_get", {
+    query: {
+      start_date: range.start,
+      end_date: range.end,
+      group_by: "project",
+      limit: 8,
+    },
+  }) as Promise<ProjectTimeRollupResponse>;
+}
+
+export async function approveFactForReportsSurface(factId: string): Promise<AiFact> {
+  return reportsApi("approve_fact_api_ai_facts__fact_id__approve_post", {
+    pathParams: { fact_id: factId },
+  }) as Promise<AiFact>;
+}
+
+export async function dismissFactForReportsSurface(factId: string): Promise<AiFact> {
+  return reportsApi("dismiss_fact_api_ai_facts__fact_id__dismiss_post", {
+    pathParams: { fact_id: factId },
+  }) as Promise<AiFact>;
+}
+
+export async function saveArtifactForReportsSurface({
+  artifactEditor,
+  selectedArtifact,
+}: {
+  artifactEditor: ArtifactEditorState;
+  selectedArtifact?: ArtifactDetail | null;
+}): Promise<ArtifactDetail> {
+  const body = {
+    kind: artifactEditor.kind,
+    title: artifactEditor.title,
+    status: "published" as const,
+    summary: artifactEditor.summary,
+    folder_key: artifactEditor.folder_key || null,
+    is_pinned: artifactEditor.is_pinned,
+    preview_text: artifactEditor.summary,
+    body: buildArtifactBodyFromEditor(artifactEditor.body_blocks),
+    period: { start: null, end: null, timezone: "America/New_York" },
+    metadata: { edited_from: "reports_surface" },
+    source: {
+      type: artifactEditor.id ? selectedArtifact?.source.type || "manual" : "manual",
+      id: artifactEditor.id ? selectedArtifact?.source.id || null : null,
+    },
+  };
+
+  if (artifactEditor.id) {
+    return reportsApi("patch_artifact_api_artifacts__artifact_id__patch", {
+      pathParams: { artifact_id: artifactEditor.id },
+      body: {
+        title: body.title,
+        status: body.status,
+        summary: body.summary,
+        folder_key: body.folder_key,
+        is_pinned: body.is_pinned,
+        preview_text: body.preview_text,
+        body: body.body,
+        period: body.period,
+        metadata: body.metadata,
+        base_version: artifactEditor.base_version,
+      },
+    }) as Promise<ArtifactDetail>;
+  }
+  return reportsApi("create_artifact_api_artifacts_post", {
+    body,
+  }) as Promise<ArtifactDetail>;
 }
 
 export function formatKind(kind: ArtifactKind): string {
@@ -357,7 +541,9 @@ export function toEditorState(definition: WorkflowDefinition): WorkflowEditorSta
     timezone: definition.schedule.timezone,
     time_value: `${String(definition.schedule.send_hour_local).padStart(2, "0")}:${String(definition.schedule.send_minute_local).padStart(2, "0")}`,
     send_weekdays: [...definition.schedule.send_weekdays],
-    config: { ...definition.config },
+    config: Object.fromEntries(
+      Object.entries(definition.config).filter((entry): entry is [string, boolean] => typeof entry[1] === "boolean"),
+    ),
   };
 }
 

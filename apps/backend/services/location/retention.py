@@ -16,10 +16,11 @@ from sqlalchemy import delete
 from database.connection import get_db_session
 from database.models import UserLocationPingDB
 from services.location.util import now_ms
+from services.privacy_policy import category_retention_days
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_RETENTION_DAYS = 30
+DEFAULT_RETENTION_DAYS = category_retention_days("location") or 30
 
 
 async def cleanup_old_pings(retention_days: int = DEFAULT_RETENTION_DAYS) -> int:

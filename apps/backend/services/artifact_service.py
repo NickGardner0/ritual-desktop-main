@@ -182,31 +182,8 @@ class ArtifactService:
         return int(latest.version or 0) if latest else 0
 
     async def _index_artifact(self, artifact: ArtifactDB) -> None:
-        try:
-            from services.search_service import search_service
-
-            await search_service.index_artifact(
-                {
-                    "id": artifact.id,
-                    "kind": artifact.kind,
-                    "title": artifact.title,
-                    "slug": artifact.slug,
-                    "summary": artifact.summary,
-                    "preview_text": artifact.preview_text,
-                    "folder_key": artifact.folder_key,
-                    "is_pinned": bool(artifact.is_pinned),
-                    "status": artifact.status,
-                    "conversation_id": artifact.conversation_id,
-                    "source_type": artifact.source_type,
-                    "source_id": artifact.source_id,
-                    "created_at": artifact.created_at,
-                    "updated_at": artifact.updated_at,
-                    "published_at": artifact.published_at,
-                },
-                artifact.user_id,
-            )
-        except Exception:
-            logger.exception("Failed to index artifact %s", artifact.id)
+        del artifact
+        return None
 
     async def list_artifacts(
         self,

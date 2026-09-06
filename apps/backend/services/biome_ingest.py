@@ -19,6 +19,11 @@ from database.models import HabitDB
 from schemas.biome import BiomeActivityEvent
 from services.location.resolver import resolve_many_for
 from services.location.util import now_ms
+from services.turso_activity_schema import (
+    apply_activity_backfills,
+    apply_activity_column_migrations,
+    apply_activity_indexes,
+)
 from services.turso_activity_remote import execute_remote_activity_batch, fetch_remote_activity_rows
 from services.watcher_service_local_db import open_activity_connection_for_user
 
@@ -307,16 +312,20 @@ async def _fetch_existing_events_remote(
     saw_remote = False
     for chunk in _chunks(event_uids, EVENT_LOOKUP_CHUNK_SIZE):
         placeholders = ", ".join(["?"] * len(chunk))
-        result = await fetch_remote_activity_rows(
-            user_id,
-            f"""
-            SELECT event_uid, ts_end, COALESCE(biome_is_provisional, 0)
-            FROM activity_events
-            WHERE event_uid IN ({placeholders})
-              AND COALESCE(source, '') = ?
-            """,
-            [*chunk, SOURCE],
-        )
+        try:
+            result = await fetch_remote_activity_rows(
+                user_id,
+                f"""
+                SELECT event_uid, ts_end, COALESCE(biome_is_provisional, 0)
+                FROM activity_events
+                WHERE event_uid IN ({placeholders})
+                  AND COALESCE(source, '') = ?
+                """,
+                [*chunk, SOURCE],
+            )
+        except Exception as exc:
+            logger.warning("Unable to fetch remote Biome existing-event lookup: %s", exc)
+            return None
         if not result.expected_remote:
             return None
         saw_remote = True
@@ -388,46 +397,9 @@ def _insert_sql() -> str:
 
 
 def _ensure_legacy_columns(conn: sqlite3.Connection) -> None:
-    migrations = {
-        "event_uid": "TEXT NOT NULL DEFAULT ''",
-        "device_platform": "TEXT",
-        "app_version": "TEXT",
-        "app_build": "TEXT",
-        "transition_reason": "TEXT",
-        "biome_source_file": "TEXT",
-        "biome_is_provisional": "INTEGER NOT NULL DEFAULT 0",
-        "location_lat": "REAL",
-        "location_lon": "REAL",
-        "location_accuracy_m": "REAL",
-        "location_source": "TEXT",
-        "location_place_label": "TEXT",
-        "location_confidence": "REAL",
-        "location_resolved_at": "INTEGER",
-        "location_signal_age_ms": "INTEGER",
-    }
-    existing = {str(row[1]) for row in conn.execute("PRAGMA table_info(activity_events)").fetchall()}
-    for name, column_sql in migrations.items():
-        if name not in existing:
-            conn.execute(f"ALTER TABLE activity_events ADD COLUMN {name} {column_sql}")
-    conn.execute(
-        """
-        UPDATE activity_events
-        SET event_uid = printf('legacy-activity:%s:%s:%lld', device_id, user_id, id)
-        WHERE event_uid IS NULL OR TRIM(event_uid) = ''
-        """
-    )
-    conn.execute(
-        """
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_activity_events_event_uid
-        ON activity_events(event_uid)
-        """
-    )
-    conn.execute(
-        """
-        CREATE INDEX IF NOT EXISTS idx_activity_events_source_ts
-        ON activity_events(user_id, source, ts_start)
-        """
-    )
+    apply_activity_column_migrations(conn)
+    apply_activity_backfills(conn)
+    apply_activity_indexes(conn)
 
 
 def _jsonable(value: Any) -> Any:

@@ -3,6 +3,7 @@ Database connection and session management
 Turso Cloud with embedded replica
 """
 
+import asyncio
 import os
 import logging
 import shutil
@@ -161,7 +162,7 @@ async def get_db_session():
             await session.rollback()
             raise
 
-async def force_local_replica_sync() -> bool:
+async def force_local_replica_sync(*, timeout_seconds: float = 2.5) -> bool:
     """Best-effort immediate sync for read-after-write consistency-sensitive reads."""
     if LOCAL_ONLY_MODE:
         return False
@@ -195,12 +196,16 @@ async def force_local_replica_sync() -> bool:
                     pass
 
     try:
-        import asyncio
-
-        synced = await asyncio.to_thread(_sync_once)
+        synced = await asyncio.wait_for(asyncio.to_thread(_sync_once), timeout=timeout_seconds)
         if synced:
             logger.info("🔄 Forced local replica sync before consistency-sensitive read")
         return synced
+    except asyncio.TimeoutError:
+        logger.warning(
+            "Timed out forcing local replica sync after %.1fs; continuing with current replica",
+            timeout_seconds,
+        )
+        return False
     except Exception as exc:
         logger.warning("Failed forcing local replica sync: %s", exc)
         return False
@@ -208,7 +213,7 @@ async def force_local_replica_sync() -> bool:
 async def init_database(*, fast_startup: bool = False):
     """
     Initialize database - verifies connection and waits for sync.
-    Schema is managed by migration scripts, not create_all().
+    Schema is managed by the Alembic runner, not create_all().
     """
     from sqlalchemy import text
     import asyncio
@@ -229,7 +234,7 @@ async def init_database(*, fast_startup: bool = False):
     for attempt in range(max_retries):
         try:
             # Just verify we can query the database - don't try to create tables
-            # Schema is managed by migration scripts (migrate_add_import_tables.py)
+            # Schema is managed by apps/backend/scripts/run_database_migrations.py.
             async with async_session_factory() as session:
                 result = await session.execute(text("SELECT COUNT(*) FROM users"))
                 count = result.scalar()
@@ -289,10 +294,7 @@ async def init_database(*, fast_startup: bool = False):
                 DATABASE_RUNTIME_STATE["db_ready"] = False
                 if "no such table" in error_msg.lower():
                     logger.error(f"❌ Database tables missing: {error_msg}")
-                    if "wearable_events" in error_msg:
-                        logger.info("💡 Run: cd backend && python scripts/repair_wearable_events_schema.py")
-                    else:
-                        logger.info("💡 Run: cd backend && python scripts/migrate_add_import_tables.py")
+                    logger.info("💡 Run: python apps/backend/scripts/run_database_migrations.py")
                 else:
                     logger.warning(f"⚠️  Database check failed after {max_retries} attempts: {error_msg}")
 

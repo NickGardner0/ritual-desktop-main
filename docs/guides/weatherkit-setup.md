@@ -41,7 +41,7 @@ Run:
 
 ```bash
 cd /Users/nickgardner/Desktop/ritual-desktop-main/apps/backend
-python scripts/migrate_add_weather_tables.py
+python apps/backend/scripts/run_database_migrations.py
 ```
 
 ## 4) Verify WeatherKit Credentials
