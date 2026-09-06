@@ -20,9 +20,12 @@ Full remediation program: [`docs/thermo-nuclear-remediation-plan.md`](docs/therm
 ## Common commands
 
 ```bash
+npm run tauri:dev        # Ritual Dev + desktop Vite HMR (port 1420)
 npm run dev              # Dashboard (port 3000)
 npm run dev:backend      # FastAPI (port 8000)
 npm run repo:check       # Structure, API boundary, line budgets
 npm run typecheck        # Dashboard TS
 npm run test:dashboard   # Dashboard unit tests
 ```
+
+See [`docs/dev-to-production-workflow.md`](docs/dev-to-production-workflow.md) for the fast frontend/backend preview loop and the rules for when a signed desktop release is actually required.
